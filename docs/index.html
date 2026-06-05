@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EasyCaptcha — Live Demo</title>
+  <meta name="description" content="Self-hosted, open-source captcha service with two variants. No third-party vendors. Try both live." />
+  <meta property="og:title" content="EasyCaptcha — Live Demo" />
+  <meta property="og:description" content="Self-hosted captcha, zero vendors. Try CanvasCaptcha (browser-only) and ServerCaptcha (backend-verified) live." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Reset & variables ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface2:    #1c2128;
+      --border:      #30363d;
+      --border2:     #21262d;
+      --accent:      #00e5aa;
+      --accent-dim:  #00b389;
+      --accent-bg:   rgba(0, 229, 170, 0.08);
+      --red:         #ff6b6b;
+      --red-bg:      rgba(255, 107, 107, 0.1);
+      --green:       #3ddc84;
+      --green-bg:    rgba(61, 220, 132, 0.1);
+      --text:        #e6edf3;
+      --text2:       #8b949e;
+      --text3:       #484f58;
+      --code-bg:     #161b22;
+      --radius:      12px;
+      --radius-sm:   8px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────── */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(13, 17, 23, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border2);
+      padding: 0 24px;
+    }
+    .header-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), #0099ff);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .logo-name {
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.3px;
+    }
+    .logo-name span { color: var(--accent); }
+    .badge {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 99px;
+      background: var(--accent-bg);
+      color: var(--accent);
+      border: 1px solid rgba(0,229,170,0.25);
+      margin-left: 4px;
+    }
+    .header-links { display: flex; align-items: center; gap: 12px; }
+    .btn-ghost {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+      background: none;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      text-decoration: none;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--text3); background: var(--surface); }
+    .btn-accent {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-accent:hover { background: var(--accent-dim); }
+    .btn-accent:active { transform: scale(0.97); }
+
+    /* ── Hero ──────────────────────────────────────────────────────────── */
+    .hero {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 80px 24px 56px;
+      text-align: center;
+    }
+    .hero-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--accent-bg);
+      border: 1px solid rgba(0,229,170,0.2);
+      border-radius: 99px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 28px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .hero-pill::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 56px);
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      color: var(--text);
+    }
+    .hero h1 em { font-style: normal; color: var(--accent); }
+    .hero p {
+      font-size: clamp(15px, 2vw, 18px);
+      color: var(--text2);
+      max-width: 560px;
+      margin: 0 auto 36px;
+    }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn-hero {
+      padding: 12px 28px;
+      border-radius: var(--radius-sm);
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-hero-primary {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+    }
+    .btn-hero-primary:hover { background: var(--accent-dim); transform: translateY(-1px); }
+    .btn-hero-secondary {
+      background: none;
+      color: var(--text);
+      border: 1.5px solid var(--border);
+    }
+    .btn-hero-secondary:hover { border-color: var(--text3); background: var(--surface); }
+
+    /* ── Demo section ──────────────────────────────────────────────────── */
+    .demo-section {
+      max-width: 900px;
+      margin: 0 auto 80px;
+      padding: 0 24px;
+    }
+    .section-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text3);
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px;
+      margin-bottom: 24px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 9px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text2);
+      background: none;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .tab-btn .tag {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--accent-bg);
+      color: var(--accent);
+    }
+    .tab-btn.active .tag { background: rgba(0,229,170,0.15); }
+
+    /* Tab panels */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Demo card */
+    .demo-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .demo-card-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border2);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .demo-card-header h2 {
+      font-size: 16px;
+      font-weight: 700;
+      flex: 1;
+    }
+    .demo-card-header p {
+      font-size: 13px;
+      color: var(--text2);
+    }
+    .demo-body {
+      padding: 28px 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 640px) {
+      .demo-body { grid-template-columns: 1fr; }
+    }
+
+    /* Captcha widgets */
+    .captcha-wrap {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .captcha-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text3);
+      margin-bottom: 12px;
+    }
+    canvas#captchaCanvas {
+      width: 100%;
+      height: 62px;
+      border-radius: 8px;
+      border: 1.5px solid var(--border);
+      display: block;
+      margin-bottom: 8px;
+    }
+    .captcha-img-wrap {
+      width: 100%;
+      height: 62px;
+      border-radius: 8px;
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      margin-bottom: 8px;
+      position: relative;
+    }
+    .captcha-img-wrap img { width: 100%; height: 62px; object-fit: fill; display: block; }
+    .captcha-refresh {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 12px;
+      padding: 0;
+      font-family: 'Inter', sans-serif;
+      transition: opacity 0.15s;
+    }
+    .captcha-refresh:hover { opacity: 0.75; }
+    .captcha-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 8px;
+      padding: 10px 14px;
+      outline: none;
+      text-transform: uppercase;
+      transition: border-color 0.15s;
+      margin-bottom: 10px;
+    }
+    .captcha-input:focus { border-color: var(--accent); }
+    .captcha-input.error { border-color: var(--red); }
+    .captcha-hint {
+      font-size: 11px;
+      color: var(--text3);
+      margin-bottom: 14px;
+    }
+    .captcha-submit {
+      width: 100%;
+      padding: 11px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .captcha-submit:hover { background: var(--accent-dim); }
+    .captcha-submit:active { transform: scale(0.98); }
+    .captcha-status {
+      margin-top: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 9px 14px;
+      border-radius: 8px;
+      display: none;
+    }
+    .captcha-status.success {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--green-bg);
+      color: var(--green);
+      border: 1px solid rgba(61,220,132,0.25);
+    }
+    .captcha-status.fail {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--red-bg);
+      color: var(--red);
+      border: 1px solid rgba(255,107,107,0.25);
+    }
+
+    /* Server backend URL input */
+    .url-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .url-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .url-input:focus { border-color: var(--accent); }
+    .url-load-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      background: none;
+      color: var(--accent);
+      border: 1.5px solid rgba(0,229,170,0.35);
+      cursor: pointer;
+      white-space: nowrap;
+      font-family: 'Inter', sans-serif;
+      transition: background 0.15s;
+    }
+    .url-load-btn:hover { background: var(--accent-bg); }
+    .backend-placeholder {
+      width: 100%;
+      height: 62px;
+      border-radius: 8px;
+      border: 1.5px dashed var(--border);
+      background: var(--surface2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .backend-placeholder span:first-child {
+      font-size: 18px;
+    }
+    .backend-placeholder span:last-child {
+      font-size: 11px;
+      color: var(--text3);
+    }
+
+    /* Code column */
+    .code-col h3 {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text2);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .code-block {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border2);
+    }
+    .code-lang {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text3);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text3);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .copy-btn:hover { color: var(--accent); border-color: rgba(0,229,170,0.4); }
+    .copy-btn.copied { color: var(--green); border-color: rgba(61,220,132,0.4); }
+    pre {
+      padding: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--text2);
+    }
+    .kw  { color: #ff7b72; }  /* keyword */
+    .str { color: #a5d6ff; }  /* string */
+    .fn  { color: #d2a8ff; }  /* function */
+    .cm  { color: #484f58; }  /* comment */
+    .at  { color: var(--accent); }  /* attribute/prop */
+    .nm  { color: #ffa657; }  /* number */
+
+    /* ── Features grid ─────────────────────────────────────────────────── */
+    .features-section {
+      max-width: 1080px;
+      margin: 0 auto 80px;
+      padding: 0 24px;
+    }
+    .features-section h2 {
+      font-size: clamp(22px, 3vw, 32px);
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .features-section > p {
+      text-align: center;
+      color: var(--text2);
+      font-size: 15px;
+      margin-bottom: 40px;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 22px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .feature-card:hover { border-color: var(--border); transform: translateY(-2px); }
+    .feature-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--accent-bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 14px;
+    }
+    .feature-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+    .feature-card p { font-size: 13px; color: var(--text2); line-height: 1.5; }
+
+    /* ── Quickstart ────────────────────────────────────────────────────── */
+    .quickstart {
+      max-width: 720px;
+      margin: 0 auto 80px;
+      padding: 0 24px;
+      text-align: center;
+    }
+    .quickstart h2 {
+      font-size: clamp(22px, 3vw, 30px);
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .quickstart > p { color: var(--text2); margin-bottom: 24px; font-size: 15px; }
+    .qs-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      text-align: left;
+      margin-bottom: 16px;
+    }
+    .qs-block-header {
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border2);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .qs-block pre {
+      padding: 18px;
+      font-size: 13px;
+    }
+
+    /* ── Footer ────────────────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border2);
+      padding: 32px 24px;
+    }
+    .footer-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-left { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .footer-left span { font-size: 13px; color: var(--text3); }
+    .footer-links { display: flex; gap: 16px; }
+    .footer-links a {
+      font-size: 13px;
+      color: var(--text3);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .footer-links a:hover { color: var(--accent); }
+    .mit {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text3);
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 5px;
+      padding: 3px 9px;
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- ── HEADER ─────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <a href="#" class="logo">
+      <div class="logo-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.85)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <span class="logo-name">Easy<span>Captcha</span></span>
+      <span class="badge">v1.0.0</span>
+    </a>
+    <div class="header-links">
+      <a href="https://github.com/your-username/easycaptcha" class="btn-ghost" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 98 96" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"/></svg>
+        GitHub
+      </a>
+      <a href="https://github.com/your-username/easycaptcha#readme" class="btn-accent" target="_blank" rel="noopener">
+        Read docs
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- ── HERO ───────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-pill">Open source &middot; MIT license &middot; Self-hosted</div>
+  <h1>Self-hosted captcha.<br /><em>Zero vendors.</em></h1>
+  <p>Two drop-in components — server-side PNG images backed by MongoDB, or a fully browser-side canvas variant. No third-party services required.</p>
+  <div class="hero-actions">
+    <a href="#demo" class="btn-hero btn-hero-primary">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+      Try it live
+    </a>
+    <a href="https://github.com/your-username/easycaptcha" target="_blank" rel="noopener" class="btn-hero btn-hero-secondary">
+      <svg width="16" height="16" viewBox="0 0 98 96" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"/></svg>
+      View on GitHub
+    </a>
+  </div>
+</section>
+
+<!-- ── DEMO ───────────────────────────────────────────────────────────────── -->
+<section class="demo-section" id="demo">
+  <p class="section-label">Interactive demo</p>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('canvas')" id="tab-canvas">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      CanvasCaptcha
+      <span class="tag">client-side</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('server')" id="tab-server">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+      ServerCaptcha
+      <span class="tag">backend-verified</span>
+    </button>
+  </div>
+
+  <!-- Canvas Tab -->
+  <div class="tab-panel active" id="panel-canvas">
+    <div class="demo-card">
+      <div class="demo-card-header">
+        <div>
+          <h2>CanvasCaptcha — browser-only</h2>
+          <p>Works immediately. No backend, no database, no API calls. Copy the component and drop it in.</p>
+        </div>
+      </div>
+      <div class="demo-body">
+        <!-- Widget -->
+        <div class="captcha-wrap">
+          <div class="captcha-label">Security check</div>
+          <canvas id="captchaCanvas" width="520" height="124"></canvas>
+          <button class="captcha-refresh" onclick="refreshCanvas()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Get a new code
+          </button>
+          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" />
+          <div class="captcha-hint">Case-insensitive &middot; 5 characters &middot; No ambiguous chars (I, O, 0, 1)</div>
+          <button class="captcha-submit" onclick="validateCanvas()">Validate</button>
+          <div class="captcha-status" id="canvasStatus"></div>
+        </div>
+        <!-- Code -->
+        <div class="code-col">
+          <h3>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Drop-in usage (React)
+          </h3>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="code-lang">jsx</span>
+              <button class="copy-btn" onclick="copyCode(this, 'canvasCode')">Copy</button>
+            </div>
+            <pre id="canvasCode"><span class="kw">import</span> { useRef } <span class="kw">from</span> <span class="str">'react'</span>;
+<span class="kw">import</span> CanvasCaptcha <span class="kw">from</span> <span class="str">'./CanvasCaptcha'</span>;
+
+<span class="kw">function</span> <span class="fn">ContactForm</span>() {
+  <span class="kw">const</span> captchaRef = <span class="fn">useRef</span>(null);
+
+  <span class="kw">const</span> <span class="fn">handleSubmit</span> = (e) => {
+    e.<span class="fn">preventDefault</span>();
+    <span class="cm">// validate() returns true/false</span>
+    <span class="cm">// auto-redraws on wrong answer</span>
+    <span class="kw">if</span> (!captchaRef.current.<span class="fn">validate</span>()) <span class="kw">return</span>;
+    <span class="cm">// ✓ safe to submit</span>
+  };
+
+  <span class="kw">return</span> (
+    &lt;form onSubmit={handleSubmit}&gt;
+      &lt;<span class="at">CanvasCaptcha</span> ref={captchaRef} /&gt;
+      &lt;button type=<span class="str">"submit"</span>&gt;Send&lt;/button&gt;
+    &lt;/form&gt;
+  );
+}</pre>
+          </div>
+          <div style="margin-top:12px; padding:12px 14px; background:var(--accent-bg); border:1px solid rgba(0,229,170,0.2); border-radius:8px;">
+            <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px;">Zero dependencies</div>
+            <div style="font-size:12px; color:var(--text2);">One file, no <code style="font-family:JetBrains Mono,monospace">npm install</code> needed. Copy <code style="font-family:JetBrains Mono,monospace">CanvasCaptcha.jsx</code> and you're done.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Server Tab -->
+  <div class="tab-panel" id="panel-server">
+    <div class="demo-card">
+      <div class="demo-card-header">
+        <div>
+          <h2>ServerCaptcha — backend-verified</h2>
+          <p>Images generated server-side. Answers stored in MongoDB. The browser never sees the solution.</p>
+        </div>
+      </div>
+      <div class="demo-body">
+        <!-- Widget -->
+        <div class="captcha-wrap">
+          <div class="captcha-label">Your EasyCaptcha backend URL</div>
+          <div class="url-row">
+            <input id="backendUrl" class="url-input" type="text" value="http://localhost:8080" placeholder="http://localhost:8080" />
+            <button class="url-load-btn" onclick="loadServerCaptcha()">Load</button>
+          </div>
+          <div class="captcha-img-wrap" id="serverImgWrap">
+            <div class="backend-placeholder" id="serverPlaceholder">
+              <span>&#x1F5A5;</span>
+              <span>Start your service, then click Load</span>
+            </div>
+            <img id="serverImg" style="display:none" alt="Captcha" />
+          </div>
+          <button class="captcha-refresh" onclick="loadServerCaptcha()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Refresh image
+          </button>
+          <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" />
+          <div class="captcha-hint" id="serverHint">Enter backend URL above and click Load</div>
+          <button class="captcha-submit" onclick="validateServer()" id="serverSubmit" disabled style="opacity:0.5;cursor:not-allowed">Validate</button>
+          <div class="captcha-status" id="serverStatus"></div>
+        </div>
+        <!-- Code -->
+        <div class="code-col">
+          <h3>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Drop-in usage (React)
+          </h3>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="code-lang">jsx</span>
+              <button class="copy-btn" onclick="copyCode(this, 'serverCode')">Copy</button>
+            </div>
+            <pre id="serverCode"><span class="kw">import</span> { useState } <span class="kw">from</span> <span class="str">'react'</span>;
+<span class="kw">import</span> ServerCaptcha <span class="kw">from</span> <span class="str">'./ServerCaptcha'</span>;
+
+<span class="kw">function</span> <span class="fn">LoginForm</span>() {
+  <span class="kw">const</span> [captcha, setCaptcha] = <span class="fn">useState</span>(null);
+  <span class="kw">const</span> [reset, setReset]     = <span class="fn">useState</span>(<span class="nm">0</span>);
+
+  <span class="kw">const</span> <span class="fn">handleSubmit</span> = <span class="kw">async</span> (e) => {
+    e.<span class="fn">preventDefault</span>();
+    <span class="kw">if</span> (!captcha) <span class="kw">return</span>;
+    <span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'/api/login'</span>, {
+      method: <span class="str">'POST'</span>,
+      body: <span class="fn">JSON.stringify</span>({
+        captcha_token_id: captcha.tokenId,
+        captcha_answer:   captcha.answer,
+      }),
+    });
+    <span class="kw">if</span> (!res.ok) <span class="fn">setReset</span>(r => r + <span class="nm">1</span>);
+  };
+
+  <span class="kw">return</span> (
+    &lt;form onSubmit={handleSubmit}&gt;
+      &lt;<span class="at">ServerCaptcha</span>
+        apiUrl=<span class="str">"http://localhost:8080"</span>
+        onReady={setCaptcha}
+        resetTrigger={reset}
+      /&gt;
+    &lt;/form&gt;
+  );
+}</pre>
+          </div>
+          <div style="margin-top:12px; padding:12px 14px; background:rgba(0,100,255,0.07); border:1px solid rgba(100,150,255,0.2); border-radius:8px;">
+            <div style="font-size:12px; font-weight:700; color:#79c0ff; margin-bottom:4px;">How it works</div>
+            <div style="font-size:12px; color:var(--text2);">Answer is stored in MongoDB only. Your backend verifies via <code style="font-family:JetBrains Mono,monospace">POST /captcha/verify</code>. The browser <strong>never</strong> sees the solution.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FEATURES ────────────────────────────────────────────────────────────── -->
+<section class="features-section">
+  <h2>Built-in security</h2>
+  <p>Production-ready defaults. No config required.</p>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F512;</div>
+      <h3>Answer never in browser</h3>
+      <p>The correct code is stored in MongoDB only. Only a distorted PNG image is returned to the client.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x267B;</div>
+      <h3>Single-use tokens</h3>
+      <p>Each token is marked <em>used</em> immediately on first correct verification. Replay attacks are impossible.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x23F1;</div>
+      <h3>Auto-expiry</h3>
+      <p>MongoDB TTL index auto-deletes tokens after <code style="font-family:JetBrains Mono,monospace">TOKEN_TTL_MINUTES</code> (default 5). No cron jobs needed.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F6E1;</div>
+      <h3>Per-IP rate limiting</h3>
+      <p>Sliding 60-second window blocks brute-force image generation. Default: 15 requests/min/IP.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F511;</div>
+      <h3>API key guard</h3>
+      <p><code style="font-family:JetBrains Mono,monospace">/captcha/verify</code> requires an <code style="font-family:JetBrains Mono,monospace">X-API-Key</code> header. Only your backend can call it — not the browser.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x26A1;</div>
+      <h3>Timing-safe comparison</h3>
+      <p><code style="font-family:JetBrains Mono,monospace">secrets.compare_digest</code> prevents timing attacks on the API key check.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── QUICKSTART ──────────────────────────────────────────────────────────── -->
+<section class="quickstart">
+  <h2>Up in 30 seconds</h2>
+  <p>Docker Compose spins up the service and MongoDB together.</p>
+  <div class="qs-block">
+    <div class="qs-block-header">
+      <span>Terminal</span>
+      <button class="copy-btn" onclick="copyCode(this, 'qsCode')">Copy</button>
+    </div>
+    <pre id="qsCode"><span class="cm"># 1. Clone the repo</span>
+git clone https://github.com/your-username/easycaptcha.git
+<span class="kw">cd</span> easycaptcha
+
+<span class="cm"># 2. Generate a strong secret key</span>
+python -c <span class="str">"import secrets; print(secrets.token_hex(32))"</span>
+<span class="cm"># → paste the output as API_SECRET_KEY in docker/docker-compose.yml</span>
+
+<span class="cm"># 3. Start (MongoDB included)</span>
+docker compose -f docker/docker-compose.yml up --build</pre>
+  </div>
+  <p style="color:var(--text3); font-size:13px;">Service live at <code style="font-family:JetBrains Mono,monospace; color:var(--accent)">http://localhost:8080</code> &nbsp;&middot;&nbsp; Docs at <code style="font-family:JetBrains Mono,monospace; color:var(--accent)">http://localhost:8080/docs</code></p>
+</section>
+
+<!-- ── FOOTER ──────────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-left">
+      <span class="logo-name" style="font-size:14px">Easy<span style="color:var(--accent)">Captcha</span></span>
+      <span>Self-hosted captcha for every stack.</span>
+      <span class="mit">MIT License</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/your-username/easycaptcha" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/your-username/easycaptcha#readme" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/your-username/easycaptcha/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+
+<script>
+/* ── Canvas Captcha ──────────────────────────────────────────────────────── */
+const CHARS  = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const COLORS = ['#1e3a8a','#6b21a8','#9d174d','#0c4a6e','#14532d','#92400e'];
+let canvasCode = '';
+
+function refreshCanvas() {
+  const canvas = document.getElementById('captchaCanvas');
+  const ctx    = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  canvasCode = '';
+  for (let i = 0; i < 5; i++)
+    canvasCode += CHARS[Math.floor(Math.random() * CHARS.length)];
+
+  // Background gradient
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#eef4fd');
+  g.addColorStop(1, '#f1f5f9');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Noise lines
+  for (let i = 0; i < 7; i++) {
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(${Math.random()*120|0},${Math.random()*120|0},${Math.random()*180|0},0.25)`;
+    ctx.lineWidth   = 1.5;
+    ctx.moveTo(Math.random()*W, Math.random()*H);
+    ctx.bezierCurveTo(
+      Math.random()*W, Math.random()*H,
+      Math.random()*W, Math.random()*H,
+      Math.random()*W, Math.random()*H
+    );
+    ctx.stroke();
+  }
+
+  // Noise dots
+  for (let i = 0; i < 80; i++) {
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(${Math.random()*100|0},${Math.random()*100|0},${Math.random()*160|0},0.3)`;
+    ctx.arc(Math.random()*W, Math.random()*H, Math.random()*2+0.5, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Characters
+  const slotW = (W - 30) / canvasCode.length;
+  canvasCode.split('').forEach((ch, i) => {
+    ctx.save();
+    ctx.translate(18 + i * slotW + slotW / 2, H / 2 + 16);
+    ctx.rotate((Math.random() - 0.5) * 0.55);
+    ctx.font        = `bold ${40 + Math.floor(Math.random()*10)}px Arial,sans-serif`;
+    ctx.fillStyle   = COLORS[i % COLORS.length];
+    ctx.textAlign   = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.1)';
+    ctx.shadowBlur  = 3;
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+  });
+
+  document.getElementById('canvasInput').value = '';
+  document.getElementById('canvasStatus').className = 'captcha-status';
+}
+
+function validateCanvas() {
+  const input  = document.getElementById('canvasInput').value.trim().toUpperCase();
+  const status = document.getElementById('canvasStatus');
+  if (input === canvasCode) {
+    status.className = 'captcha-status success';
+    status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Correct! The captcha was validated.';
+  } else {
+    status.className = 'captcha-status fail';
+    status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Wrong code — a new image has loaded.';
+    refreshCanvas();
+  }
+}
+
+/* ── Server Captcha ──────────────────────────────────────────────────────── */
+let serverTokenId = null;
+let serverCaptchaLen = 5;
+
+async function loadServerCaptcha() {
+  const url    = (document.getElementById('backendUrl').value || '').trim().replace(/\/$/, '');
+  const wrap   = document.getElementById('serverImgWrap');
+  const img    = document.getElementById('serverImg');
+  const ph     = document.getElementById('serverPlaceholder');
+  const hint   = document.getElementById('serverHint');
+  const submit = document.getElementById('serverSubmit');
+  const status = document.getElementById('serverStatus');
+
+  status.className = 'captcha-status';
+  ph.style.display = 'flex';
+  ph.innerHTML     = '<span>⏳</span><span>Loading from ' + url + '…</span>';
+  img.style.display = 'none';
+  document.getElementById('serverInput').value = '';
+
+  try {
+    const res  = await fetch(`${url}/captcha`, { mode: 'cors' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    serverTokenId    = data.token_id;
+    serverCaptchaLen = data.captcha_length || 5;
+
+    img.src           = `data:image/png;base64,${data.image_b64}`;
+    img.style.display = 'block';
+    ph.style.display  = 'none';
+
+    document.getElementById('serverInput').maxLength = serverCaptchaLen;
+    hint.textContent = `Type the ${serverCaptchaLen} characters shown above`;
+    submit.disabled  = false;
+    submit.style.opacity = '1';
+    submit.style.cursor  = 'pointer';
+
+  } catch (err) {
+    ph.innerHTML = `<span>&#x274C;</span><span>Could not reach ${url} — is the service running?</span>`;
+    hint.textContent = 'Start the service first, then click Load';
+  }
+}
+
+async function validateServer() {
+  const url    = (document.getElementById('backendUrl').value || '').trim().replace(/\/$/, '');
+  const answer = document.getElementById('serverInput').value.trim().toUpperCase();
+  const status = document.getElementById('serverStatus');
+
+  if (!serverTokenId || !answer) return;
+
+  try {
+    const res  = await fetch(`${url}/captcha/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_id: serverTokenId, answer }),
+      mode: 'cors',
+    });
+    const data = await res.json();
+
+    if (res.status === 401) {
+      status.className = 'captcha-status fail';
+      status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Missing API key — /captcha/verify requires X-API-Key (backend-to-backend only).';
+      return;
+    }
+
+    if (data.valid) {
+      status.className = 'captcha-status success';
+      status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Correct! Token consumed — your backend would proceed now.';
+    } else {
+      status.className = 'captcha-status fail';
+      status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Wrong code — a new image has loaded.';
+      loadServerCaptcha();
+    }
+  } catch {
+    status.className = 'captcha-status fail';
+    status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Network error — check the service URL.';
+  }
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+/* ── Copy code ───────────────────────────────────────────────────────────── */
+function copyCode(btn, id) {
+  const el   = document.getElementById(id);
+  const text = el.innerText || el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+/* ── Enter key submits ───────────────────────────────────────────────────── */
+document.getElementById('canvasInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') validateCanvas();
+});
+document.getElementById('serverInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') validateServer();
+});
+document.getElementById('backendUrl').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadServerCaptcha();
+});
+
+/* ── Init ────────────────────────────────────────────────────────────────── */
+refreshCanvas();
+</script>
+
+</body>
+</html>

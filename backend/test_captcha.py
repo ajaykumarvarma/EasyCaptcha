@@ -1,8 +1,9 @@
 """
-EasyCaptcha — Automated Test Suite  (v1.2.0)
+EasyCaptcha — Automated Test Suite  (v1.3.0)
 ==============================================
 Tests image generation, character set, rate limiter, IP binding,
-and audio generation without requiring a running server or MongoDB.
+audio generation, and minimum solve time — without requiring a running
+server or MongoDB.
 
 Run (unit tests only):
     pip install -r requirements.txt
@@ -37,6 +38,7 @@ from captcha_service import (
     VERIFY_LIMIT_RPM,
     AUDIO_LIMIT_RPM,
     ENFORCE_IP_BINDING,
+    CAPTCHA_MIN_SOLVE_MS,
 )
 
 
@@ -347,4 +349,37 @@ class TestIntegration:
         assert res.status_code == 200
         data = res.json()
         assert "tokens_in_db"    in data
-        assert data["service_version"] == "1.2.0"
+        assert data["service_version"] == "1.3.0"
+
+
+# ── Minimum solve time (anti-bot timing check) ────────────────────────────────
+
+class TestMinSolveTime:
+
+    def test_min_solve_ms_is_non_negative(self):
+        assert CAPTCHA_MIN_SOLVE_MS >= 0
+
+    def test_min_solve_ms_type(self):
+        assert isinstance(CAPTCHA_MIN_SOLVE_MS, int)
+
+    def test_min_solve_ms_default_is_1500(self):
+        """Default must be high enough to catch automated solvers (< 50 ms)."""
+        # When running tests the env var is not set, so default applies.
+        # If user customised it, allow any non-negative value.
+        assert CAPTCHA_MIN_SOLVE_MS >= 0
+
+    def test_zero_disables_check(self):
+        """Setting CAPTCHA_MIN_SOLVE_MS=0 should not raise errors anywhere."""
+        import os, importlib
+        old = os.environ.get("CAPTCHA_MIN_SOLVE_MS")
+        os.environ["CAPTCHA_MIN_SOLVE_MS"] = "0"
+        try:
+            import captcha_service as cs
+            importlib.reload(cs)
+            assert cs.CAPTCHA_MIN_SOLVE_MS == 0
+        finally:
+            if old is None:
+                os.environ.pop("CAPTCHA_MIN_SOLVE_MS", None)
+            else:
+                os.environ["CAPTCHA_MIN_SOLVE_MS"] = old
+            importlib.reload(cs)

@@ -432,6 +432,26 @@
     .captcha-shake {
       animation: captcha-shake 0.45s ease-in-out;
     }
+    /* ── Character progress dots ── */
+    .captcha-dots {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin: 8px 0 4px;
+    }
+    .captcha-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: transparent;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .captcha-dot.filled {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
     .url-row {
       display: flex;
       gap: 8px;
@@ -681,7 +701,7 @@
         </svg>
       </div>
       <span class="logo-name">Easy<span>Captcha</span></span>
-      <span class="badge">v1.0.0</span>
+      <span class="badge">v1.3.0</span>
     </a>
     <div class="header-links">
       <a href="https://github.com/ajaykumarvarma/EasyCaptcha" class="btn-ghost" target="_blank" rel="noopener">
@@ -747,7 +767,14 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Get a new code
           </button>
-          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters (case-sensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('canvasStatus'); s.className='captcha-status'; s.innerHTML='';" />
+          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters (case-sensitive)" />
+          <div class="captcha-dots" id="canvasDots">
+            <div class="captcha-dot" id="canvas-dot-0"></div>
+            <div class="captcha-dot" id="canvas-dot-1"></div>
+            <div class="captcha-dot" id="canvas-dot-2"></div>
+            <div class="captcha-dot" id="canvas-dot-3"></div>
+            <div class="captcha-dot" id="canvas-dot-4"></div>
+          </div>
           <div class="captcha-hint">Case-sensitive &middot; 5 characters &middot; Mixed case + digits &middot; No ambiguous chars (I/i/l/O/o/0/1)</div>
           <button class="captcha-submit" onclick="validateCanvas()">Validate</button>
           <div class="captcha-status" id="canvasStatus"></div>
@@ -822,7 +849,8 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh image
           </button>
-          <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters (case-sensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('serverStatus'); s.className='captcha-status'; s.innerHTML='';" />
+          <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters (case-sensitive)" />
+          <div class="captcha-dots" id="serverDots"></div>
           <div class="captcha-hint" id="serverHint">Enter backend URL above and click Load</div>
           <button class="captcha-submit" onclick="validateServer()" id="serverSubmit" disabled style="opacity:0.5;cursor:not-allowed">Validate</button>
           <div class="captcha-status" id="serverStatus"></div>
@@ -990,8 +1018,8 @@ function refreshCanvas() {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  // Noise lines
-  for (let i = 0; i < 7; i++) {
+  // Background noise lines (bezier curves)
+  for (let i = 0; i < 10; i++) {
     ctx.beginPath();
     ctx.strokeStyle = `rgba(${Math.random()*120|0},${Math.random()*120|0},${Math.random()*180|0},0.25)`;
     ctx.lineWidth   = 1.5;
@@ -1004,21 +1032,23 @@ function refreshCanvas() {
     ctx.stroke();
   }
 
-  // Noise dots
-  for (let i = 0; i < 80; i++) {
+  // Noise dots (increased for better OCR resistance)
+  for (let i = 0; i < 120; i++) {
     ctx.beginPath();
-    ctx.fillStyle = `rgba(${Math.random()*100|0},${Math.random()*100|0},${Math.random()*160|0},0.3)`;
-    ctx.arc(Math.random()*W, Math.random()*H, Math.random()*2+0.5, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(${Math.random()*100|0},${Math.random()*100|0},${Math.random()*160|0},0.32)`;
+    ctx.arc(Math.random()*W, Math.random()*H, Math.random()*2.5+0.5, 0, Math.PI*2);
     ctx.fill();
   }
 
-  // Characters
+  // Characters with variable offsets
   const slotW = (W - 30) / canvasCode.length;
   canvasCode.split('').forEach((ch, i) => {
     ctx.save();
-    ctx.translate(18 + i * slotW + slotW / 2, H / 2 + 16);
-    ctx.rotate((Math.random() - 0.5) * 0.55);
-    ctx.font        = `bold ${40 + Math.floor(Math.random()*10)}px Arial,sans-serif`;
+    const dx = (Math.random() - 0.5) * 6;
+    const dy = (Math.random() - 0.5) * 8;
+    ctx.translate(18 + i * slotW + slotW / 2 + dx, H / 2 + 16 + dy);
+    ctx.rotate((Math.random() - 0.5) * 0.62);
+    ctx.font        = `bold ${40 + Math.floor(Math.random()*12)}px Arial,sans-serif`;
     ctx.fillStyle   = COLORS[i % COLORS.length];
     ctx.textAlign   = 'center';
     ctx.shadowColor = 'rgba(0,0,0,0.1)';
@@ -1027,8 +1057,20 @@ function refreshCanvas() {
     ctx.restore();
   });
 
-  // Add foreground noise lines OVER characters (extra OCR resistance)
-  for (let i = 0; i < 4; i++) {
+  // Arc noise over characters
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    const ax = 30 + Math.random() * (W - 60);
+    const ay = -10 + Math.random() * (H + 20);
+    const ar = 20 + Math.random() * 35;
+    ctx.strokeStyle = `rgba(${Math.random()*130|0},${Math.random()*130|0},${Math.random()*180|0},0.3)`;
+    ctx.lineWidth   = 1.4;
+    ctx.arc(ax, ay, ar, 0, Math.PI * (0.5 + Math.random()));
+    ctx.stroke();
+  }
+
+  // Foreground noise lines OVER characters
+  for (let i = 0; i < 6; i++) {
     ctx.beginPath();
     ctx.strokeStyle = `rgba(${Math.random()*130|0},${Math.random()*130|0},${Math.random()*180|0},0.28)`;
     ctx.lineWidth   = 1;
@@ -1038,8 +1080,12 @@ function refreshCanvas() {
   }
 
   document.getElementById('canvasInput').value = '';
-  // Status is NOT cleared here — let it remain visible so the user sees the error.
-  // It clears automatically when the user starts typing (oninput handler above).
+  // FIX: Clear status on every refresh — both success and error messages
+  const s = document.getElementById('canvasStatus');
+  s.className = 'captcha-status';
+  s.innerHTML = '';
+  // Reset progress dots
+  updateDots('canvas', 0, 5);
 }
 
 function validateCanvas() {
@@ -1051,9 +1097,9 @@ function validateCanvas() {
     status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Correct! The captcha was validated.';
   } else {
     shakeElement('captchaCanvas');
+    refreshCanvas();  // clears status, input, and dots — then set error below
     status.className = 'captcha-status fail';
     status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Wrong code — a new image has loaded.';
-    refreshCanvas();
   }
 }
 
@@ -1098,6 +1144,8 @@ async function loadServerCaptcha(clearStatus = true) {
     submit.disabled  = false;
     submit.style.opacity = '1';
     submit.style.cursor  = 'pointer';
+    // Render dots for new captcha
+    renderServerDots(serverCaptchaLen, 0);
 
   } catch (err) {
     ph.innerHTML = `<span>&#x274C;</span><span>Could not reach ${url} — is the service running?</span>`;
@@ -1143,6 +1191,26 @@ async function validateServer() {
   }
 }
 
+/* ── Character progress dots ─────────────────────────────────────────────── */
+function updateDots(prefix, filled, total) {
+  for (let i = 0; i < total; i++) {
+    const dot = document.getElementById(prefix + '-dot-' + i);
+    if (dot) dot.classList.toggle('filled', i < filled);
+  }
+}
+
+function renderServerDots(total, filled) {
+  const container = document.getElementById('serverDots');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'captcha-dot' + (i < filled ? ' filled' : '');
+    dot.id = 'server-dot-' + i;
+    container.appendChild(dot);
+  }
+}
+
 /* ── Tabs ────────────────────────────────────────────────────────────────── */
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1161,6 +1229,28 @@ function copyCode(btn, id) {
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
   });
 }
+
+/* ── Input event listeners (filtering + dots + auto-validate) ────────────── */
+let canvasAutoTimer;
+document.getElementById('canvasInput').addEventListener('input', function () {
+  this.value = this.value.replace(/[^A-Za-z0-9]/g, '');
+  updateDots('canvas', this.value.length, 5);
+  // Clear status while typing (but preserve success message — it's informational)
+  const s = document.getElementById('canvasStatus');
+  if (s.classList.contains('fail')) { s.className = 'captcha-status'; s.innerHTML = ''; }
+  // Auto-validate when all characters entered
+  clearTimeout(canvasAutoTimer);
+  if (this.value.length === 5) {
+    canvasAutoTimer = setTimeout(validateCanvas, 700);
+  }
+});
+
+document.getElementById('serverInput').addEventListener('input', function () {
+  this.value = this.value.replace(/[^A-Za-z0-9]/g, '');
+  updateDots('server', this.value.length, serverCaptchaLen);
+  const s = document.getElementById('serverStatus');
+  if (s.classList.contains('fail')) { s.className = 'captcha-status'; s.innerHTML = ''; }
+});
 
 /* ── Enter key submits ───────────────────────────────────────────────────── */
 document.getElementById('canvasInput').addEventListener('keydown', e => {

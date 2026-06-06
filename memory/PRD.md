@@ -41,7 +41,18 @@ https://github.com/ajaykumarvarma/EasyCaptcha
 - [x] backend/.env.example and requirements-dev.txt added
 - [x] Version: 1.1.0
 
-### v1.2.0 (MongoDB auth + IP binding + Audio CAPTCHA)
+### v1.3.0 (Security hardening + UX polish)
+- [x] **Bug Fix:** Success message now correctly clears when user gets a new captcha via "Get a new code" button
+- [x] **Security:** Minimum solve time check (`CAPTCHA_MIN_SOLVE_MS=1500`) — rejects answers arriving in < 1.5 s (bot timing attack mitigation)
+- [x] **Security:** Enhanced server image generation — 180 dots (was 130), 8 foreground lines (was 5), arc noise over characters, variable character spacing ±3px, tighter rotation ±33°
+- [x] **Security:** Enhanced canvas rendering — 90 dots (was 60), 14 bezier lines (was 10), 3 arc noise passes, 6 foreground lines (was 4), variable char offsets
+- [x] **Security (Bug fix):** `CanvasCaptcha.jsx` `validate()` was using `.toUpperCase()` comparison (case-insensitive!) — fixed to strict `===` comparison
+- [x] **UX:** Character progress dots (●●●○○) below input in all 3 frontends
+- [x] **UX:** Auto-validate 700ms after all characters typed (canvas demo only)
+- [x] New `error_code: "too_fast"` in `VerifyResponse`
+- [x] New `CAPTCHA_MIN_SOLVE_MS` env var (0 = disabled)
+- [x] Version bumped to 1.3.0 across all files
+- [x] 41 tests pass (was 37)
 - [x] **MongoDB authentication in docker-compose:**
   - Root admin: `MONGO_ROOT_USERNAME`/`MONGO_ROOT_PASSWORD`
   - App user: `captcha_svc` (readWrite on easycaptcha db only) — least privilege
@@ -68,9 +79,9 @@ https://github.com/ajaykumarvarma/EasyCaptcha
 
 ---
 
-## Test Results
+## Test Results (v1.3.0)
 ```
-37 passed, 9 skipped
+41 passed, 9 skipped
 - Audio WAV tests: skip when espeak-ng not installed (installed in Docker)
 - Integration tests: skip without --integration flag + live server
 ```
@@ -115,3 +126,19 @@ https://github.com/ajaykumarvarma/EasyCaptcha
 - Animated loading skeleton in React components
 - `CAPTCHA_LENGTH` per-request randomisation (4-6 chars)
 - Cypress/Playwright end-to-end tests against the demo page
+
+## Config Reference (v1.3.0)
+| Env Var | Default | Description |
+|---|---|---|
+| MONGODB_URL | required | MongoDB connection string |
+| API_SECRET_KEY | required | Secret for X-API-Key header |
+| DB_NAME | easycaptcha | Database name |
+| ALLOWED_ORIGINS | * | CORS origins |
+| TOKEN_TTL_MINUTES | 5 | Token expiry |
+| RATE_LIMIT_PER_MIN | 15 | GET /captcha limit/IP/min |
+| VERIFY_LIMIT_PER_MIN | 60 | POST /captcha/verify limit/IP/min |
+| AUDIO_LIMIT_PER_MIN | 20 | GET /captcha/audio limit/IP/min |
+| CAPTCHA_LENGTH | 5 | Chars per challenge |
+| CAPTCHA_MIN_SOLVE_MS | 1500 | Min ms to solve (0=off) — anti-bot timing check |
+| ENFORCE_IP_BINDING | false | Reject verify if client_ip mismatch |
+| LOG_LEVEL | INFO | DEBUG/INFO/WARNING/ERROR |

@@ -82,7 +82,7 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
     ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
 
     // Background noise
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 14; i++) {
       ctx.beginPath();
       ctx.strokeStyle = `rgba(${Math.random()*120|0},${Math.random()*120|0},${Math.random()*180|0},0.22)`;
       ctx.lineWidth = 1.2;
@@ -94,10 +94,10 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
       );
       ctx.stroke();
     }
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 90; i++) {
       ctx.beginPath();
       ctx.fillStyle = `rgba(${Math.random()*100|0},${Math.random()*100|0},${Math.random()*160|0},0.35)`;
-      ctx.arc(Math.random()*W, Math.random()*H, Math.random()*2+0.4, 0, Math.PI*2);
+      ctx.arc(Math.random()*W, Math.random()*H, Math.random()*2.5+0.4, 0, Math.PI*2);
       ctx.fill();
     }
 
@@ -105,9 +105,9 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
     const slotW = (W - 24) / text.length;
     text.split('').forEach((char, i) => {
       ctx.save();
-      ctx.translate(14 + i * slotW + slotW / 2, H / 2 + 9);
-      ctx.rotate((Math.random() - 0.5) * 0.55);
-      ctx.font        = `bold ${22 + (Math.random() * 7 | 0)}px Arial, sans-serif`;
+      ctx.translate(14 + i * slotW + slotW / 2 + (Math.random()-0.5)*4, H / 2 + 9 + (Math.random()-0.5)*6);
+      ctx.rotate((Math.random() - 0.5) * 0.62);
+      ctx.font        = `bold ${23 + (Math.random() * 9 | 0)}px Arial, sans-serif`;
       ctx.fillStyle   = CAPTCHA_COLORS[i % CAPTCHA_COLORS.length];
       ctx.textAlign   = 'center';
       ctx.shadowColor = 'rgba(0,0,0,0.15)';
@@ -116,8 +116,18 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
       ctx.restore();
     });
 
-    // Foreground noise — lines over characters
-    for (let i = 0; i < 4; i++) {
+    // Foreground noise — arcs and lines over characters
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      const ax = 30 + Math.random() * (W - 60);
+      const ay = -10 + Math.random() * (H + 20);
+      const ar = 15 + Math.random() * 28;
+      ctx.strokeStyle = `rgba(${Math.random()*130|0},${Math.random()*130|0},${Math.random()*180|0},0.32)`;
+      ctx.lineWidth = 1.3;
+      ctx.arc(ax, ay, ar, 0, Math.PI * (0.6 + Math.random() * 1.2));
+      ctx.stroke();
+    }
+    for (let i = 0; i < 6; i++) {
       ctx.beginPath();
       ctx.strokeStyle = `rgba(${Math.random()*130|0},${Math.random()*130|0},${Math.random()*180|0},0.30)`;
       ctx.lineWidth = 1;
@@ -189,7 +199,8 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
   // ── Imperative API ───────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
     validate: () => {
-      const ok = input.trim().toUpperCase() === captchaRef.current.toUpperCase();
+      // Strict case comparison — must match exactly as displayed
+      const ok = input.trim() === captchaRef.current;
       if (!ok) {
         setError('Incorrect code — a new image has been loaded. Please try again.');
         setShaking(true);
@@ -297,6 +308,24 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
         onFocus={(e) => (e.target.style.borderColor = '#0ea5e9')}
         onBlur={(e)  => (e.target.style.borderColor = displayError ? '#e11d48' : '#e2e8f0')}
       />
+
+      {/* Character progress dots */}
+      <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', margin: '8px 0 2px' }}>
+        {Array.from({ length }).map((_, i) => (
+          <span
+            key={i}
+            style={{
+              display: 'inline-block',
+              width: '7px', height: '7px',
+              borderRadius: '50%',
+              border: `1.5px solid ${i < input.length ? '#0ea5e9' : '#e2e8f0'}`,
+              background: i < input.length ? '#0ea5e9' : 'transparent',
+              transition: 'all 0.15s',
+              flexShrink: 0,
+            }}
+          />
+        ))}
+      </div>
 
       {/* Helper / error */}
       {displayError ? (

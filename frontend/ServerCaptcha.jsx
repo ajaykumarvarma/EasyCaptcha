@@ -340,6 +340,26 @@ const ServerCaptcha = ({
         onBlur={(e)  => { e.target.style.borderColor = displayError ? '#e11d48' : '#e2e8f0'; }}
       />
 
+      {/* Character progress dots */}
+      {!loading && imgB64 && (
+        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', margin: '8px 0 2px' }}>
+          {Array.from({ length: captchaLength }).map((_, i) => (
+            <span
+              key={i}
+              style={{
+                display: 'inline-block',
+                width: '7px', height: '7px',
+                borderRadius: '50%',
+                border: `1.5px solid ${i < input.length ? '#0ea5e9' : '#e2e8f0'}`,
+                background: i < input.length ? '#0ea5e9' : 'transparent',
+                transition: 'all 0.15s',
+                flexShrink: 0,
+              }}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Helper / error */}
       {displayError ? (
         <p id="captcha-hint" style={{

@@ -70,6 +70,7 @@ VERIFY_LIMIT_RPM  = int(os.getenv("VERIFY_LIMIT_PER_MIN", "60"))
 AUDIO_LIMIT_RPM   = int(os.getenv("AUDIO_LIMIT_PER_MIN",  "20"))
 CAPTCHA_LENGTH    = int(os.getenv("CAPTCHA_LENGTH",        "5"))
 ENFORCE_IP_BINDING = os.getenv("ENFORCE_IP_BINDING", "false").strip().lower() == "true"
+CAPTCHA_MIN_SOLVE_MS = int(os.getenv("CAPTCHA_MIN_SOLVE_MS", "1500"))  # 0 = disabled
 LOG_LEVEL         = os.getenv("LOG_LEVEL", "INFO").upper()
 
 logging.basicConfig(
@@ -172,12 +173,14 @@ def _generate_captcha_image(code: str) -> str:
     draw = ImageDraw.Draw(img)
     rng  = secrets.SystemRandom()
 
-    for _ in range(130):
+    # Background noise dots (increased for stronger OCR resistance)
+    for _ in range(180):
         x = rng.randint(0, W); y = rng.randint(0, H); r = rng.randint(1, 3)
         c = (rng.randint(175, 225), rng.randint(180, 228), rng.randint(205, 248))
         draw.ellipse([x - r, y - r, x + r, y + r], fill=c)
 
-    for _ in range(10):
+    # Background interference lines
+    for _ in range(12):
         pts = [
             (rng.randint(0, W // 4), rng.randint(5, H - 5)),
             (rng.randint(W // 4, W // 2), rng.randint(5, H - 5)),
@@ -187,7 +190,9 @@ def _generate_captcha_image(code: str) -> str:
         c = (rng.randint(155, 205), rng.randint(155, 205), rng.randint(185, 230))
         draw.line(pts, fill=c, width=1)
 
+    # Variable character spacing — harder for segmentation-based OCR
     slot_w = (W - 20) // len(code)
+    offsets = [rng.randint(-3, 3) for _ in range(len(code))]
     for i, char in enumerate(code):
         size = rng.randint(24, 36)
         try:
@@ -197,18 +202,28 @@ def _generate_captcha_image(code: str) -> str:
         layer = Image.new("RGBA", (slot_w, H + 16), (0, 0, 0, 0))
         ld    = ImageDraw.Draw(layer)
         bbox  = ld.textbbox((0, 0), char, font=font)
-        cx    = (slot_w - (bbox[2] - bbox[0])) // 2
-        cy    = (H - (bbox[3] - bbox[1])) // 2 - 2 + rng.randint(-4, 4)
+        cx    = (slot_w - (bbox[2] - bbox[0])) // 2 + offsets[i]
+        cy    = (H - (bbox[3] - bbox[1])) // 2 - 2 + rng.randint(-5, 5)
         ld.text((cx, cy), char, fill=_COLORS[i % len(_COLORS)], font=font)
-        layer = layer.rotate(rng.uniform(-30, 30), resample=Image.BICUBIC, expand=False)
+        layer = layer.rotate(rng.uniform(-33, 33), resample=Image.BICUBIC, expand=False)
         img.paste(layer, (10 + i * slot_w, 0), layer)
 
     draw_fg = ImageDraw.Draw(img)
-    for _ in range(5):
+    # Foreground lines crossing characters
+    for _ in range(8):
         x1 = rng.randint(0, W // 4); y1 = rng.randint(H // 5, 4 * H // 5)
         x2 = rng.randint(3 * W // 4, W); y2 = rng.randint(H // 5, 4 * H // 5)
         c  = (rng.randint(115, 175), rng.randint(115, 175), rng.randint(155, 215))
         draw_fg.line([(x1, y1), (x2, y2)], fill=c, width=1)
+
+    # Arc noise over characters (makes segmentation harder)
+    for _ in range(3):
+        x0 = rng.randint(W // 5, 4 * W // 5)
+        y0 = rng.randint(-10, H + 10)
+        r  = rng.randint(18, 35)
+        c  = (rng.randint(120, 180), rng.randint(120, 180), rng.randint(160, 220))
+        draw_fg.arc([x0 - r, y0 - r, x0 + r, y0 + r], start=rng.randint(0, 180),
+                    end=rng.randint(181, 360), fill=c, width=1)
 
     img = _apply_wave_distortion(img)
     img = img.filter(ImageFilter.GaussianBlur(radius=0.8))
@@ -281,8 +296,8 @@ async def lifespan(app: FastAPI):
 
     audio_status = "available" if _espeak_available() else "unavailable (install espeak-ng)"
     logger.info(
-        "EasyCaptcha ready  |  DB: %s  |  TTL: %d min  |  IP binding: %s  |  audio: %s  |  v1.2.0",
-        DB_NAME, TOKEN_TTL_MINS, ENFORCE_IP_BINDING, audio_status,
+        "EasyCaptcha ready  |  DB: %s  |  TTL: %d min  |  IP binding: %s  |  audio: %s  |  min_solve: %dms  |  v1.3.0",
+        DB_NAME, TOKEN_TTL_MINS, ENFORCE_IP_BINDING, audio_status, CAPTCHA_MIN_SOLVE_MS,
     )
     yield
 
@@ -296,7 +311,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title       = "EasyCaptcha",
     description = "Self-hosted, lightweight server-side image captcha service.",
-    version     = "1.2.0",
+    version     = "1.3.0",
     lifespan    = lifespan,
     docs_url    = "/docs",
     redoc_url   = "/redoc",
@@ -345,7 +360,7 @@ class VerifyRequest(BaseModel):
 class VerifyResponse(BaseModel):
     valid:      bool
     # error_code: debugging only — do NOT surface this message to end users.
-    # Values: not_found | expired | wrong_answer | ip_missing | ip_mismatch
+    # Values: not_found | expired | wrong_answer | ip_missing | ip_mismatch | too_fast
     error_code: Optional[str] = None
 
 
@@ -370,7 +385,7 @@ def _get_ip(request: Request) -> str:
 async def health():
     return HealthResponse(
         status          = "ok",
-        version         = "1.2.0",
+        version         = "1.3.0",
         service         = "EasyCaptcha",
         audio_available = _espeak_available(),
     )
@@ -580,6 +595,21 @@ async def verify_captcha(
         {"$set": {"used": True}},
     )
 
+    # ── Minimum solve time (anti-bot timing check) ───────────────────
+    # Real humans take ≥1.5 s to read and type; automated solvers answer in <50 ms.
+    if CAPTCHA_MIN_SOLVE_MS > 0:
+        created = doc.get("created_at")
+        if created:
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            elapsed_ms = (datetime.now(timezone.utc) - created).total_seconds() * 1000
+            if elapsed_ms < CAPTCHA_MIN_SOLVE_MS:
+                logger.warning(
+                    "Bot suspected — solve too fast  |  token: %s  |  %.0f ms < %d ms",
+                    payload.token_id[:8], elapsed_ms, CAPTCHA_MIN_SOLVE_MS,
+                )
+                return VerifyResponse(valid=False, error_code="too_fast")
+
     # ── Answer check (strict case — must match exactly as displayed) ────────
     if doc["code"] != payload.answer.strip():
         logger.debug("Wrong answer  |  token: %s", payload.token_id[:8])
@@ -609,5 +639,5 @@ async def stats(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
         tokens_in_db    = total,
         active_unused   = unused,
         verified        = verified,
-        service_version = "1.2.0",
+        service_version = "1.3.0",
     )

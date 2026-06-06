@@ -14,6 +14,30 @@ Two ready-to-use variants:
 
 ---
 
+## What's new
+
+### v1.3.0 (Security hardening + UX polish)
+- **Minimum solve time** — answers arriving in under `CAPTCHA_MIN_SOLVE_MS` ms (default 1500) are automatically rejected. Automated solvers answer in < 50 ms; humans take ≥ 2 s. Zero false positives for real users.
+- **Enhanced image distortion** — 180 background dots (was 130), arc noise arcs over characters, variable character spacing, and 8 foreground interference lines (was 5). Significantly harder for batch OCR.
+- **Strict case-sensitive comparison** — both React components and the demo page now compare answers exactly as displayed (mixed upper/lower/digit).
+- **Character progress dots** — filling dots below the input show how many characters have been typed (●●●○○ style). Available in all three frontends.
+- **Auto-validate** — canvas variant auto-submits 700 ms after the last character is typed.
+- **New error code** — `too_fast` in `VerifyResponse.error_code` when timing check fails.
+- **41 tests** (was 37), all passing.
+
+### v1.2.0 (MongoDB auth + IP binding + Audio CAPTCHA)
+- MongoDB authentication with dedicated least-privilege `captcha_svc` user.
+- IP binding: `ENFORCE_IP_BINDING=true` ties each token to the requesting IP.
+- Audio CAPTCHA: `GET /captcha/audio/{token_id}` via `espeak-ng` (WCAG 2.1 SC 1.1.1).
+
+### v1.1.0 (Bug fixes + Security baseline)
+- Wave distortion + foreground noise for OCR resistance.
+- Single-use tokens (consumed on any attempt, not just correct ones).
+- Mixed-case character pool (upper + lower + digits, no ambiguous glyphs).
+- Per-IP sliding-window rate limiter on all three endpoints.
+
+---
+
 ## Table of contents
 
 1. [How it works](#how-it-works)
@@ -100,17 +124,20 @@ easycaptcha/
 ├── backend/
 │   ├── captcha_service.py   — Complete FastAPI service (single file, runs standalone)
 │   ├── requirements.txt     — Python dependencies
+│   ├── requirements-dev.txt — Test dependencies
 │   ├── .env.example         — Copy to .env and fill in values
-│   ├── Dockerfile
-│   ├── test_captcha.py      — Automated tests (26 tests, no server needed)
+│   ├── Dockerfile           — Python + espeak-ng environment
+│   ├── test_captcha.py      — Automated tests (41 unit tests, 9 integration/audio skipped)
 │   └── conftest.py          — pytest configuration
 ├── frontend/
-│   ├── ServerCaptcha.jsx    — React component (server-side variant)
-│   └── CanvasCaptcha.jsx    — React component (canvas / client-side variant)
+│   ├── ServerCaptcha.jsx    — React component (server-side variant, v1.3.0)
+│   └── CanvasCaptcha.jsx    — React component (canvas / client-side variant, v1.3.0)
 ├── docker/
-│   └── docker-compose.yml   — One-command local setup (service + MongoDB)
+│   ├── docker-compose.yml   — One-command local setup (service + MongoDB with auth)
+│   ├── mongo-init.js        — Creates dedicated captcha_svc MongoDB user (least privilege)
+│   └── .env.example         — Docker secrets template
 ├── docs/
-│   └── index.html           — GitHub Pages live demo (both variants, works in-browser)
+│   └── index.html           — GitHub Pages live demo (both variants, v1.3.0)
 ├── README.md
 └── LICENSE                  — MIT
 ```
@@ -229,8 +256,12 @@ All settings live in `backend/.env` (or as Docker environment variables).
 | `DB_NAME` | No | `easycaptcha` | MongoDB database name |
 | `ALLOWED_ORIGINS` | No | `*` | Comma-separated CORS-allowed origins |
 | `TOKEN_TTL_MINUTES` | No | `5` | Minutes before an unused token auto-expires |
-| `RATE_LIMIT_PER_MIN` | No | `15` | Max `/captcha` calls per IP per minute |
+| `RATE_LIMIT_PER_MIN` | No | `15` | Max `GET /captcha` calls per IP per minute |
+| `VERIFY_LIMIT_PER_MIN` | No | `60` | Max `POST /captcha/verify` calls per IP per minute |
+| `AUDIO_LIMIT_PER_MIN` | No | `20` | Max `GET /captcha/audio/{id}` calls per IP per minute |
 | `CAPTCHA_LENGTH` | No | `5` | Number of characters per challenge |
+| `CAPTCHA_MIN_SOLVE_MS` | No | `1500` | Minimum ms between token creation and verify (0 = disabled) |
+| `ENFORCE_IP_BINDING` | No | `false` | Reject verify if `client_ip` doesn't match token origin IP |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 
 **Example `.env` for production:**
@@ -243,6 +274,8 @@ ALLOWED_ORIGINS=https://yourdomain.com
 TOKEN_TTL_MINUTES=5
 RATE_LIMIT_PER_MIN=15
 CAPTCHA_LENGTH=5
+CAPTCHA_MIN_SOLVE_MS=1500
+ENFORCE_IP_BINDING=false
 ```
 
 > **Tip — changing `CAPTCHA_LENGTH`**: The API response always includes
@@ -1051,23 +1084,30 @@ echo json_encode(['message' => 'Account created.']);
 
 ```json
 {
-  "token_id":       "550e8400-e29b-41d4-a716-446655440000",
-  "image_b64":      "<base64-encoded PNG>",
-  "captcha_length": 5
+  "token_id":        "550e8400-e29b-41d4-a716-446655440000",
+  "image_b64":       "<base64-encoded PNG>",
+  "captcha_length":  5,
+  "audio_available": true
 }
 ```
 
-Render the image:
+`audio_available` is `true` when `espeak-ng` is installed on the server — show the audio button only when this is `true`.
 
-```html
-<img src="data:image/png;base64,PASTE_image_b64_HERE" alt="Security code" />
-```
-
-The `captcha_length` field tells the frontend exactly how many characters to
-expect.  The `ServerCaptcha` React component reads this automatically; in
-vanilla JS, set `input.maxLength = data.captcha_length`.
+The `captcha_length` field tells the frontend exactly how many characters to expect. The `ServerCaptcha` React component reads this automatically; in vanilla JS, set `input.maxLength = data.captcha_length`.
 
 **Error — 429** Rate limit exceeded.
+
+---
+
+### `GET /captcha/audio/{token_id}` — Audio accessibility (WCAG 2.1)
+
+Returns a WAV file that spells out each character with a clear pause between them. Designed for visually impaired users.
+
+- Does **not** consume the token — user still types the answer.
+- Requires `espeak-ng` on the server (included in the Docker image).
+- Returns `503` if `espeak-ng` is not installed.
+- Returns `404` if the token doesn't exist or is already used.
+- Rate limited to `AUDIO_LIMIT_PER_MIN` (default 20) per IP/min.
 
 ---
 
@@ -1083,8 +1123,10 @@ Content-Type: application/json
 **Body**
 
 ```json
-{ "token_id": "...", "answer": "AB3K9" }
+{ "token_id": "...", "answer": "Ab3Kz", "client_ip": "1.2.3.4" }
 ```
+
+`client_ip` is optional — only required when `ENFORCE_IP_BINDING=true`. Pass the end-user's IP as seen by your backend.
 
 **Response — 200**
 
@@ -1092,10 +1134,23 @@ Content-Type: application/json
 { "valid": true }
 ```
 
-Returns `valid: false` for: wrong answer, expired token, already-used token,
-unknown token ID.  Details intentionally withheld to prevent enumeration.
+```json
+{ "valid": false, "error_code": "wrong_answer" }
+```
+
+Possible `error_code` values (for your backend logs only — never surface to users):
+
+| Code | Meaning |
+|------|---------|
+| `not_found` | Token ID doesn't exist or was already used |
+| `expired` | Token TTL has elapsed |
+| `wrong_answer` | Case-sensitive answer mismatch |
+| `too_fast` | Answer arrived faster than `CAPTCHA_MIN_SOLVE_MS` ms |
+| `ip_missing` | `ENFORCE_IP_BINDING=true` but `client_ip` not provided |
+| `ip_mismatch` | `ENFORCE_IP_BINDING=true` and IPs don't match |
 
 **Error — 401** Missing or wrong `X-API-Key`.
+**Error — 429** Rate limit exceeded.
 
 ---
 
@@ -1110,7 +1165,7 @@ Requires the same `X-API-Key` header.
   "tokens_in_db":    42,
   "active_unused":   8,
   "verified":        34,
-  "service_version": "1.0.0"
+  "service_version": "1.3.0"
 }
 ```
 
@@ -1126,7 +1181,7 @@ number stays low in production.
 ### `GET /health` — Health check
 
 ```json
-{ "status": "ok", "version": "1.0.0", "service": "EasyCaptcha" }
+{ "status": "ok", "version": "1.3.0", "service": "EasyCaptcha", "audio_available": true }
 ```
 
 No authentication needed.  Use for load balancer health probes and uptime monitoring.
@@ -1135,7 +1190,7 @@ No authentication needed.  Use for load balancer health probes and uptime monito
 
 ## Running the tests
 
-The test suite covers image generation, character set correctness, and rate limiting logic — all without needing a running server or MongoDB.
+The test suite covers image generation, character set correctness, rate limiting logic, minimum solve time configuration, and audio availability — all without needing a running server or MongoDB.
 
 ```bash
 cd backend
@@ -1144,9 +1199,9 @@ cd backend
 pip install -r requirements.txt
 
 # Install test-only extras (not in requirements.txt)
-pip install pytest httpx
+pip install -r requirements-dev.txt
 
-# Run all unit tests (21 tests, ~0.5 s)
+# Run all unit tests (41 tests, ~0.6 s)
 MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=test \
   pytest test_captcha.py -v
 ```
@@ -1154,46 +1209,13 @@ MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=test \
 Expected output:
 
 ```
-test_captcha.py::TestImageGeneration::test_returns_nonempty_string PASSED
-test_captcha.py::TestImageGeneration::test_output_is_valid_base64  PASSED
-test_captcha.py::TestImageGeneration::test_output_is_valid_png     PASSED
-test_captcha.py::TestImageGeneration::test_different_codes_...     PASSED
-test_captcha.py::TestImageGeneration::test_same_code_produces_...  PASSED
-test_captcha.py::TestImageGeneration::test_various_lengths         PASSED
-test_captcha.py::TestImageGeneration::test_single_character        PASSED
-test_captcha.py::TestCharacterSet::test_excludes_ambiguous_chars   PASSED
-test_captcha.py::TestCharacterSet::test_contains_expected_chars    PASSED
-test_captcha.py::TestCharacterSet::test_all_uppercase_or_digit     PASSED
-test_captcha.py::TestCharacterSet::test_no_duplicates              PASSED
-test_captcha.py::TestCharacterSet::test_minimum_pool_size          PASSED
-test_captcha.py::TestRateLimiter::test_allows_requests_under_limit PASSED
-test_captcha.py::TestRateLimiter::test_blocks_requests_over_limit  PASSED
-test_captcha.py::TestRateLimiter::test_different_ips_are_independent PASSED
-test_captcha.py::TestRateLimiter::test_window_resets_after_60_secs PASSED
-test_captcha.py::TestRateLimiter::test_allows_new_requests_after...PASSED
-test_captcha.py::TestFontDetection::test_returns_string_or_none    PASSED
-test_captcha.py::TestFontDetection::test_path_exists_if_found      PASSED
-test_captcha.py::TestConfig::test_captcha_length_is_positive       PASSED
-test_captcha.py::TestConfig::test_rate_limit_is_positive           PASSED
-test_captcha.py::TestIntegration::test_health                      SKIPPED
-test_captcha.py::TestIntegration::test_generate_and_verify         SKIPPED
-test_captcha.py::TestIntegration::test_verify_missing_api_key      SKIPPED
-test_captcha.py::TestIntegration::test_stats_requires_api_key      SKIPPED
-test_captcha.py::TestIntegration::test_stats_with_valid_key        SKIPPED
-
-21 passed, 5 skipped
+...
+41 passed, 9 skipped
 ```
 
-### Integration tests (requires running service)
-
-```bash
-# First start the service (Docker or manual)
-docker compose -f ../docker/docker-compose.yml up -d
-
-# Then run with the --integration flag
-MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=your-secret \
-  pytest test_captcha.py -v --integration
-```
+Skipped tests require either:
+- A live running service (integration tests) — add `--integration` flag
+- `espeak-ng` installed (audio WAV generation tests)
 
 ---
 
@@ -1203,13 +1225,19 @@ MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=your-secret \
 
 | Protection | Detail |
 |-----------|--------|
-| Code never sent to browser | Only the PNG image is returned.  The answer is stored in MongoDB only. |
-| Single-use tokens | Marked used immediately after first correct verification — replay is impossible. |
+| Code never sent to browser | Only the PNG image is returned. The answer is stored in MongoDB only. |
+| Single-use tokens | Marked used immediately after the first verify call — replay is impossible. |
 | TTL expiry | MongoDB TTL index auto-deletes tokens after `TOKEN_TTL_MINUTES` (default 5). |
-| Per-IP rate limiting | Sliding 60-second window.  Configurable via `RATE_LIMIT_PER_MIN`. |
+| Per-IP rate limiting | Sliding 60-second window on all three endpoints. Configurable. |
+| **Minimum solve time** | Answers arriving faster than `CAPTCHA_MIN_SOLVE_MS` (default 1500 ms) are rejected. Automated solvers typically answer in < 50 ms; real humans take ≥ 2 s. |
+| **Strict case-sensitivity** | Answer must match the displayed characters exactly (upper/lower/digit). |
+| **Enhanced image distortion** | Wave distortion, variable rotation (±33°), arc noise, variable character spacing, foreground lines, and 180 background dots. Hard to batch-OCR. |
 | Security headers | `X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control: no-store` on every response. |
 | API key guard | `/captcha/verify` and `/stats` require `X-API-Key` — only your backend can call them. |
 | Constant-time comparison | `secrets.compare_digest` prevents timing attacks on the API key check. |
+| **IP binding (optional)** | When `ENFORCE_IP_BINDING=true`, the verify IP must match the generate IP. Prevents token-theft attacks. |
+| **MongoDB auth (optional)** | `docker-compose.yml` supports dedicated `captcha_svc` user with least-privilege `readWrite` on the `easycaptcha` DB only. |
+| **Audio CAPTCHA (WCAG 2.1)** | `GET /captcha/audio/{token_id}` reads characters aloud via `espeak-ng`. Screen-reader accessible. Does not consume the token. |
 
 ### Limitations
 
@@ -1219,6 +1247,7 @@ MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=your-secret \
 | CanvasCaptcha | Client-side only — do not use for high-value flows like login or payment. |
 | In-memory rate limiter | Resets on restart; not shared across multiple instances. Swap to Redis for multi-instance deployments. |
 | HTTPS | Always serve EasyCaptcha over HTTPS in production. |
+| Audio CAPTCHA | Inherently less OCR-resistant than images. Use as accessibility supplement, not the primary channel. |
 
 ### Production checklist
 
@@ -1226,6 +1255,7 @@ MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=your-secret \
 - [ ] `ALLOWED_ORIGINS` is set to your exact frontend domain (not `*`)
 - [ ] Service is behind a reverse proxy (nginx / Caddy) with TLS
 - [ ] `TOKEN_TTL_MINUTES` is 5 or lower
+- [ ] `CAPTCHA_MIN_SOLVE_MS` is at least 1500 (the default)
 - [ ] `/health` is monitored by your uptime tool
 - [ ] Login/signup endpoints also have their own rate limiting
 

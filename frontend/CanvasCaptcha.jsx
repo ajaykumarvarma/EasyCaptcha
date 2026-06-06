@@ -2,24 +2,26 @@
  * CanvasCaptcha — React component for EasyCaptcha (client-side canvas variant)
  * -----------------------------------------------------------------------------
  * A purely browser-side captcha drawn on an HTML <canvas> element.
- * No backend or database required — ideal for simple contact forms or
- * situations where you cannot run a server.
+ * No backend or database required — ideal for contact forms or low-risk flows.
+ *
+ * Character pool: uppercase + lowercase + digits (ambiguous glyphs excluded).
+ * Validation is case-insensitive.
  *
  * ⚠️  Security trade-off
- * The generated code is held in a React ref, which means a sophisticated
- * attacker who inspects the JS runtime can bypass it.  For higher-risk flows
- * (login, signup, payment) prefer the server-side ServerCaptcha component.
+ * The generated code is held in a React ref, so a sophisticated attacker who
+ * inspects the JS runtime can bypass it.  For high-risk flows (login, signup,
+ * payment) use the server-side ServerCaptcha component instead.
  *
  * Props
  * -----
+ *   length        {number}   Number of characters (default 5).
  *   resetTrigger  {number}   Increment to programmatically reset the captcha.
  *   externalError {string}   Error message to display from the parent form.
  *
  * Ref (imperative handle)
  * -----------------------
- * Attach a ref to access:
  *   ref.current.validate()   → boolean  (clears + redraws on wrong answer)
- *   ref.current.refresh()    → void     (manually refresh)
+ *   ref.current.refresh()    → void
  *   ref.current.hasInput()   → boolean
  *
  * Usage
@@ -46,8 +48,7 @@
  *
  * Dependencies
  * ------------
- *   - React 17+ (uses hooks, forwardRef)
- *   No other dependencies required.
+ *   - React 17+  (hooks, forwardRef — no extra packages)
  */
 
 import React, {
@@ -59,10 +60,12 @@ import React, {
   useImperativeHandle,
 } from 'react';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-// Omit visually confusing characters: I, O, 0, 1
-const CAPTCHA_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// ── Character pool ────────────────────────────────────────────────────────────
+// Mixed case + digits; ambiguous glyphs excluded:
+//   Uppercase: no I, O   (look like 1 and 0)
+//   Lowercase: no i, l, o (look like 1, 1, and 0)
+//   Digits:    no 0, 1   (look like O/o and I/l)
+const CAPTCHA_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 
 const CAPTCHA_COLORS = [
   '#1e3a8a', // deep blue
@@ -73,7 +76,7 @@ const CAPTCHA_COLORS = [
   '#92400e', // amber
 ];
 
-// ── Inline SVG icon — no external icon library needed ────────────────────────
+// ── Inline SVG icon ───────────────────────────────────────────────────────────
 const RefreshIcon = ({ size = 12 }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -95,11 +98,11 @@ const RefreshIcon = ({ size = 12 }) => (
 // ── Component ─────────────────────────────────────────────────────────────────
 const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length = 5 }, ref) => {
   const canvasRef  = useRef(null);
-  const captchaRef = useRef('');
+  const captchaRef = useRef('');    // stores current challenge code
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
 
-  // ── Canvas drawing ─────────────────────────────────────────────────────
+  // ── Canvas drawing ──────────────────────────────────────────────────
   const draw = useCallback((text) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -123,8 +126,8 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
     ctx.lineWidth   = 1;
     ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
 
-    // Noise — curved lines
-    for (let i = 0; i < 7; i++) {
+    // Background noise — curved lines
+    for (let i = 0; i < 10; i++) {
       ctx.beginPath();
       ctx.strokeStyle = `rgba(${Math.floor(Math.random() * 120)},${Math.floor(Math.random() * 120)},${Math.floor(Math.random() * 180)},0.22)`;
       ctx.lineWidth   = 1.2;
@@ -137,10 +140,10 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
       ctx.stroke();
     }
 
-    // Noise — dots
-    for (let i = 0; i < 50; i++) {
+    // Background noise — dots
+    for (let i = 0; i < 60; i++) {
       ctx.beginPath();
-      ctx.fillStyle = `rgba(${Math.floor(Math.random() * 100)},${Math.floor(Math.random() * 100)},${Math.floor(Math.random() * 160)},0.40)`;
+      ctx.fillStyle = `rgba(${Math.floor(Math.random() * 100)},${Math.floor(Math.random() * 100)},${Math.floor(Math.random() * 160)},0.35)`;
       ctx.arc(Math.random() * W, Math.random() * H, Math.random() * 2 + 0.4, 0, Math.PI * 2);
       ctx.fill();
     }
@@ -159,9 +162,19 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
       ctx.fillText(char, 0, 0);
       ctx.restore();
     });
+
+    // Foreground noise — lines over characters to hinder OCR
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(${Math.floor(Math.random() * 130)},${Math.floor(Math.random() * 130)},${Math.floor(Math.random() * 180)},0.30)`;
+      ctx.lineWidth   = 1;
+      ctx.moveTo(Math.random() * W * 0.3,       H * 0.2 + Math.random() * H * 0.6);
+      ctx.lineTo(W * 0.7 + Math.random() * W * 0.3, H * 0.2 + Math.random() * H * 0.6);
+      ctx.stroke();
+    }
   }, []);
 
-  // ── Generate new challenge ────────────────────────────────────────────
+  // ── Generate new challenge ──────────────────────────────────────────
   const refresh = useCallback(() => {
     let text = '';
     for (let i = 0; i < length; i++) {
@@ -185,11 +198,12 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
     }
   }, [resetTrigger, refresh]);
 
-  // ── Imperative API (used by parent via ref) ───────────────────────────
+  // ── Imperative API ──────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
-    /** Validate the current input.  Returns true if correct, false otherwise. */
+    /** Validate the current input.  Returns true if correct. */
     validate: () => {
-      const ok = input.trim().toUpperCase() === captchaRef.current;
+      // Case-insensitive comparison — user can type either case
+      const ok = input.trim().toUpperCase() === captchaRef.current.toUpperCase();
       if (!ok) {
         setError('Incorrect code — a new image has been loaded. Please try again.');
         refresh();
@@ -200,7 +214,7 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
     },
     /** Reset the captcha without validation. */
     refresh: () => { refresh(); setError(''); },
-    /** Check whether the user has typed anything. */
+    /** Whether the user has typed anything. */
     hasInput: () => !!input.trim(),
   }), [input, refresh]);
 
@@ -220,16 +234,17 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
           width: '100%',
           height: '62px',
           borderRadius: '10px',
-          border: '1.5px solid #e2e8f0',
+          border: `1.5px solid ${displayError ? '#e11d48' : '#e2e8f0'}`,
           display: 'block',
           userSelect: 'none',
           boxSizing: 'border-box',
           marginBottom: '6px',
+          transition: 'border-color 0.15s',
         }}
         aria-label="Captcha image — type the characters shown into the field below"
       />
 
-      {/* Refresh link */}
+      {/* Reload button */}
       <button
         type="button"
         onClick={handleManualRefresh}
@@ -256,7 +271,8 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
         type="text"
         value={input}
         onChange={(e) => {
-          setInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+          // Allow uppercase + lowercase + digits; strip everything else
+          setInput(e.target.value.replace(/[^A-Za-z0-9]/g, ''));
           if (error) setError('');
         }}
         placeholder={`Type the ${length} characters above`}
@@ -275,16 +291,23 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
           fontWeight: 700,
           color: '#0f172a',
           boxSizing: 'border-box',
-          textTransform: 'uppercase',
           transition: 'border-color 0.15s',
         }}
         onFocus={(e) => (e.target.style.borderColor = '#0ea5e9')}
-        onBlur={(e) => (e.target.style.borderColor = displayError ? '#e11d48' : '#e2e8f0')}
+        onBlur={(e)  => (e.target.style.borderColor = displayError ? '#e11d48' : '#e2e8f0')}
       />
 
       {/* Helper / error text */}
       {displayError ? (
-        <p style={{ color: '#e11d48', fontSize: '12px', margin: '6px 0 0', fontWeight: 600 }}>
+        <p style={{
+          color: '#e11d48', fontSize: '12px', margin: '6px 0 0', fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: '4px',
+        }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
           {displayError}
         </p>
       ) : (

@@ -2,7 +2,7 @@
 
 **Self-hosted, open-source captcha service — no third-party vendor required.**
 
-> **Live demo →** [your-username.github.io/easycaptcha](https://your-username.github.io/easycaptcha)  
+> **Live demo →** [ajaykumarvarma.github.io/EasyCaptcha](https://ajaykumarvarma.github.io/EasyCaptcha)  
 > Try both variants live (CanvasCaptcha works instantly; ServerCaptcha connects to your own instance).
 
 Two ready-to-use variants:
@@ -130,10 +130,10 @@ The `docs/` folder contains a fully self-contained demo page you can host for fr
 5. Click **Save** — the demo is live at:
 
 ```
-https://your-username.github.io/easycaptcha
+https://ajaykumarvarma.github.io/EasyCaptcha
 ```
 
-Replace `your-username` with your actual GitHub username.
+Replace `your-username` with `ajaykumarvarma` (already configured).
 
 ### What the demo shows
 
@@ -155,7 +155,7 @@ The ServerCaptcha tab is intentionally designed for developers to point at their
 
 ```bash
 # 1. Clone / download this repository
-git clone https://github.com/your-username/easycaptcha.git
+git clone https://github.com/ajaykumarvarma/EasyCaptcha.git
 cd easycaptcha
 
 # 2. Set a real API secret before starting

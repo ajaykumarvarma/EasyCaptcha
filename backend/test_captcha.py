@@ -383,3 +383,24 @@ class TestMinSolveTime:
             else:
                 os.environ["CAPTCHA_MIN_SOLVE_MS"] = old
             importlib.reload(cs)
+
+
+# ── Honeypot ──────────────────────────────────────────────────────────────────
+
+class TestHoneypot:
+
+    def test_honeypot_field_defaults_to_empty(self):
+        from captcha_service import VerifyRequest
+        p = VerifyRequest(token_id="abc", answer="ABC")
+        assert p.honeypot == ""
+
+    def test_honeypot_accepts_non_empty_value(self):
+        from captcha_service import VerifyRequest
+        p = VerifyRequest(token_id="abc", answer="ABC", honeypot="bot-was-here")
+        assert p.honeypot == "bot-was-here"
+
+    def test_honeypot_present_in_verify_request_schema(self):
+        from captcha_service import VerifyRequest
+        fields = VerifyRequest.model_fields
+        assert "honeypot" in fields
+        assert fields["honeypot"].default == ""

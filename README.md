@@ -18,6 +18,7 @@ Two ready-to-use variants:
 
 ### v1.3.0 (Security hardening + UX polish)
 - **Minimum solve time** — answers arriving in under `CAPTCHA_MIN_SOLVE_MS` ms (default 1500) are automatically rejected. Automated solvers answer in < 50 ms; humans take ≥ 2 s. Zero false positives for real users.
+- **Honeypot hidden field** — `ServerCaptcha` includes a CSS-hidden `name="website"` input. Bots fill it; humans never see it. Any non-empty value triggers instant rejection before any DB lookup.
 - **Enhanced image distortion** — 180 background dots (was 130), arc noise arcs over characters, variable character spacing, and 8 foreground interference lines (was 5). Significantly harder for batch OCR.
 - **Strict case-sensitive comparison** — both React components and the demo page now compare answers exactly as displayed (mixed upper/lower/digit).
 - **Character progress dots** — filling dots below the input show how many characters have been typed (●●●○○ style). Available in all three frontends.
@@ -1123,10 +1124,12 @@ Content-Type: application/json
 **Body**
 
 ```json
-{ "token_id": "...", "answer": "Ab3Kz", "client_ip": "1.2.3.4" }
+{ "token_id": "...", "answer": "Ab3Kz", "client_ip": "1.2.3.4", "honeypot": "" }
 ```
 
 `client_ip` is optional — only required when `ENFORCE_IP_BINDING=true`. Pass the end-user's IP as seen by your backend.
+
+`honeypot` is always `""` for real users. Pass the value from `onReady` payload directly: `{ token_id: data.tokenId, answer: data.answer, honeypot: data.honeypot }`. The backend rejects any non-empty value with `error_code: "bot_suspected"` before touching the DB.
 
 **Response — 200**
 
@@ -1146,6 +1149,7 @@ Possible `error_code` values (for your backend logs only — never surface to us
 | `expired` | Token TTL has elapsed |
 | `wrong_answer` | Case-sensitive answer mismatch |
 | `too_fast` | Answer arrived faster than `CAPTCHA_MIN_SOLVE_MS` ms |
+| `bot_suspected` | Honeypot field was non-empty |
 | `ip_missing` | `ENFORCE_IP_BINDING=true` but `client_ip` not provided |
 | `ip_mismatch` | `ENFORCE_IP_BINDING=true` and IPs don't match |
 
@@ -1230,6 +1234,7 @@ Skipped tests require either:
 | TTL expiry | MongoDB TTL index auto-deletes tokens after `TOKEN_TTL_MINUTES` (default 5). |
 | Per-IP rate limiting | Sliding 60-second window on all three endpoints. Configurable. |
 | **Minimum solve time** | Answers arriving faster than `CAPTCHA_MIN_SOLVE_MS` (default 1500 ms) are rejected. Automated solvers typically answer in < 50 ms; real humans take ≥ 2 s. |
+| **Honeypot hidden field** | `ServerCaptcha` renders a CSS-hidden `name="website"` input (not `type="hidden"`, which bots skip). Bots fill every visible input field, humans don't. Non-empty value = immediate rejection, no DB hit. |
 | **Strict case-sensitivity** | Answer must match the displayed characters exactly (upper/lower/digit). |
 | **Enhanced image distortion** | Wave distortion, variable rotation (±33°), arc noise, variable character spacing, foreground lines, and 180 background dots. Hard to batch-OCR. |
 | Security headers | `X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control: no-store` on every response. |

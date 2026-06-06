@@ -851,6 +851,11 @@
           </button>
           <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters (case-sensitive)" />
           <div class="captcha-dots" id="serverDots"></div>
+          <!-- Honeypot: CSS-hidden, real users never interact with it -->
+          <div aria-hidden="true" style="position:absolute;top:-9999px;left:-9999px;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;">
+            <label for="serverHoneypot">Website</label>
+            <input id="serverHoneypot" type="text" name="website" tabindex="-1" autocomplete="off" />
+          </div>
           <div class="captcha-hint" id="serverHint">Enter backend URL above and click Load</div>
           <button class="captcha-submit" onclick="validateServer()" id="serverSubmit" disabled style="opacity:0.5;cursor:not-allowed">Validate</button>
           <div class="captcha-status" id="serverStatus"></div>
@@ -1154,17 +1159,26 @@ async function loadServerCaptcha(clearStatus = true) {
 }
 
 async function validateServer() {
-  const url    = (document.getElementById('backendUrl').value || '').trim().replace(/\/$/, '');
-  const answer = document.getElementById('serverInput').value.trim();
-  const status = document.getElementById('serverStatus');
+  const url      = (document.getElementById('backendUrl').value || '').trim().replace(/\/$/, '');
+  const answer   = document.getElementById('serverInput').value.trim();
+  const honeypot = document.getElementById('serverHoneypot').value;
+  const status   = document.getElementById('serverStatus');
 
   if (!serverTokenId || !answer) return;
+
+  // Honeypot check: real users never fill this hidden field
+  if (honeypot) {
+    shakeElement('serverImgWrap');
+    status.className = 'captcha-status fail';
+    status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Submission blocked.';
+    return;
+  }
 
   try {
     const res  = await fetch(`${url}/captcha/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token_id: serverTokenId, answer }),
+      body: JSON.stringify({ token_id: serverTokenId, answer, honeypot: '' }),
       mode: 'cors',
     });
     const data = await res.json();

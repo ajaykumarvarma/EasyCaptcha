@@ -2,14 +2,23 @@
  * ServerCaptcha — React component for EasyCaptcha (server-side variant)
  * -----------------------------------------------------------------------
  * Fetches a captcha image from the EasyCaptcha backend, displays it, and
- * calls `onReady({ tokenId, answer })` when the user has typed a full code.
+ * calls `onReady({ tokenId, answer, honeypot })` when the user has typed a
+ * full code. Pass all three fields to your backend's /captcha/verify call.
  *
  * Props
  * -----
  *   apiUrl        {string}    Base URL of your EasyCaptcha backend.
- *   onReady       {Function}  Called with { tokenId, answer } or null.
+ *   onReady       {Function}  Called with { tokenId, answer, honeypot } or null.
  *   resetTrigger  {number}    Increment to programmatically reset the widget.
  *   externalError {string}    Error message from the parent form.
+ *
+ * v1.3.0 additions
+ * ----------------
+ *   - Honeypot hidden field: `name="website"` input hidden via CSS (not type=hidden).
+ *     Bots fill it; real users never interact with it. Value is always "" for
+ *     real humans and is included in the `onReady` payload as `honeypot`.
+ *   - Character progress dots: filled circles below input showing typing progress.
+ *   - Strict case-sensitive answer comparison.
  *
  * v1.2.0 additions
  * ----------------
@@ -59,6 +68,7 @@ const ServerCaptcha = ({
   const lengthRef   = useRef(5);
   const onReadyRef  = useRef(onReady);
   useEffect(() => { onReadyRef.current = onReady; });
+  const honeypotRef = useRef('');  // Honeypot: should always stay empty for real humans
 
   const audioRef = useRef(null);   // current HTMLAudioElement
 
@@ -182,7 +192,12 @@ const ServerCaptcha = ({
     if (error) setError('');
     if (onReadyRef.current) {
       if (filtered.length === lengthRef.current && tokenRef.current) {
-        onReadyRef.current({ tokenId: tokenRef.current, answer: filtered });
+        // Honeypot check: if the hidden field is filled, silently block submission
+        if (honeypotRef.current) {
+          onReadyRef.current(null);
+          return;
+        }
+        onReadyRef.current({ tokenId: tokenRef.current, answer: filtered, honeypot: '' });
       } else {
         onReadyRef.current(null);
       }
@@ -198,7 +213,7 @@ const ServerCaptcha = ({
   };
 
   return (
-    <div style={{ fontFamily: 'inherit' }}>
+    <div style={{ fontFamily: 'inherit', position: 'relative' }}>
       <style>{`
         @keyframes captcha-shake {
           0%,100% { transform: translateX(0);    }
@@ -210,6 +225,26 @@ const ServerCaptcha = ({
           90%     { transform: translateX(2px);  }
         }
       `}</style>
+
+      {/* Honeypot field — visually hidden from real users, bots fill it automatically */}
+      <input
+        type="text"
+        name="website"
+        tabIndex={-1}
+        aria-hidden="true"
+        autoComplete="off"
+        onChange={(e) => { honeypotRef.current = e.target.value; }}
+        style={{
+          position: 'absolute',
+          top: '-9999px',
+          left: '-9999px',
+          width: 0,
+          height: 0,
+          opacity: 0,
+          pointerEvents: 'none',
+          overflow: 'hidden',
+        }}
+      />
 
       {/* Image + controls row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>

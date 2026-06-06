@@ -52,7 +52,10 @@ https://github.com/ajaykumarvarma/EasyCaptcha
 - [x] New `error_code: "too_fast"` in `VerifyResponse`
 - [x] New `CAPTCHA_MIN_SOLVE_MS` env var (0 = disabled)
 - [x] Version bumped to 1.3.0 across all files
-- [x] 41 tests pass (was 37)
+- [x] **Security:** Honeypot hidden field (`name="website"`) in `ServerCaptcha.jsx` and server captcha demo — checked client-side (silent block) and backend (early `bot_suspected` rejection before any DB hit)
+- [x] New `error_code: "bot_suspected"` in `VerifyResponse`
+- [x] `onReady` payload now includes `honeypot` field: `{ tokenId, answer, honeypot }`
+- [x] 44 tests pass (was 41)
 - [x] **MongoDB authentication in docker-compose:**
   - Root admin: `MONGO_ROOT_USERNAME`/`MONGO_ROOT_PASSWORD`
   - App user: `captcha_svc` (readWrite on easycaptcha db only) — least privilege

@@ -355,12 +355,16 @@ class VerifyRequest(BaseModel):
     # Example (Express): client_ip: req.ip
     # Example (Django):  client_ip: request.META.get('REMOTE_ADDR')
     client_ip: Optional[str] = None
+    # Honeypot field — must always be empty for real humans.
+    # Include the value from the hidden <input name="website"> in the UI.
+    # Any non-empty value indicates automated submission.
+    honeypot:  str = ""
 
 
 class VerifyResponse(BaseModel):
     valid:      bool
     # error_code: debugging only — do NOT surface this message to end users.
-    # Values: not_found | expired | wrong_answer | ip_missing | ip_mismatch | too_fast
+    # Values: not_found | expired | wrong_answer | ip_missing | ip_mismatch | too_fast | bot_suspected
     error_code: Optional[str] = None
 
 
@@ -545,6 +549,15 @@ async def verify_captcha(
     """
     if not x_api_key or not secrets.compare_digest(x_api_key, API_SECRET_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    # ── Honeypot check (fail fast — no DB hit, no rate limit increment) ──
+    # The UI includes a CSS-hidden field that real users never fill.
+    # Bots that auto-complete all fields will populate it, exposing themselves.
+    if payload.honeypot:
+        logger.warning(
+            "Honeypot triggered — bot suspected  |  token: %s", payload.token_id[:8]
+        )
+        return VerifyResponse(valid=False, error_code="bot_suspected")
 
     ip = _get_ip(request)
     if not _check_rate_limit(ip, _verify_rate_store, VERIFY_LIMIT_RPM):

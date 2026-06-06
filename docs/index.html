@@ -419,7 +419,19 @@
       border: 1px solid rgba(255,107,107,0.25);
     }
 
-    /* Server backend URL input */
+    /* ── Shake animation (wrong answer feedback) ── */
+    @keyframes captcha-shake {
+      0%, 100% { transform: translateX(0);    }
+      15%      { transform: translateX(-9px); }
+      30%      { transform: translateX(8px);  }
+      45%      { transform: translateX(-6px); }
+      60%      { transform: translateX(5px);  }
+      75%      { transform: translateX(-3px); }
+      90%      { transform: translateX(2px);  }
+    }
+    .captcha-shake {
+      animation: captcha-shake 0.45s ease-in-out;
+    }
     .url-row {
       display: flex;
       gap: 8px;
@@ -952,6 +964,16 @@ const CHARS  = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 const COLORS = ['#1e3a8a','#6b21a8','#9d174d','#0c4a6e','#14532d','#92400e'];
 let canvasCode = '';
 
+// ── Shake helper — triggers the CSS shake animation on any element ───────────
+function shakeElement(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('captcha-shake');
+  void el.offsetWidth;   // force reflow so the animation restarts if called twice
+  el.classList.add('captcha-shake');
+  el.addEventListener('animationend', () => el.classList.remove('captcha-shake'), { once: true });
+}
+
 function refreshCanvas() {
   const canvas = document.getElementById('captchaCanvas');
   const ctx    = canvas.getContext('2d');
@@ -1028,6 +1050,7 @@ function validateCanvas() {
     status.className = 'captcha-status success';
     status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Correct! The captcha was validated.';
   } else {
+    shakeElement('captchaCanvas');
     status.className = 'captcha-status fail';
     status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Wrong code — a new image has loaded.';
     refreshCanvas();
@@ -1099,6 +1122,7 @@ async function validateServer() {
     const data = await res.json();
 
     if (res.status === 401) {
+      shakeElement('serverImgWrap');
       status.className = 'captcha-status fail';
     status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> /captcha/verify is backend-to-backend only — it requires an <code>X-API-Key</code> header. Your server calls this, never the browser. See <a href="https://github.com/ajaykumarvarma/EasyCaptcha#readme" style="color:inherit">README</a> for integration guide.';
       return;
@@ -1108,6 +1132,7 @@ async function validateServer() {
       status.className = 'captcha-status success';
       status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Correct! Token consumed — your backend would proceed now.';
     } else {
+      shakeElement('serverImgWrap');
       status.className = 'captcha-status fail';
       status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Incorrect code — token consumed. A new image has loaded. Please try again.';
       loadServerCaptcha(false);  // pass false = keep the error message visible

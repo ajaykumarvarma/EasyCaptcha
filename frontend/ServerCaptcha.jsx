@@ -71,6 +71,7 @@ const ServerCaptcha = ({
   const [audioPlaying,   setAudioPlaying]   = useState(false);
   const [audioLoading,   setAudioLoading]   = useState(false);
   const [audioError,     setAudioError]     = useState('');
+  const [shaking,        setShaking]        = useState(false);
 
   // ── Fetch a fresh captcha ──────────────────────────────────────────
   const refresh = useCallback(async () => {
@@ -112,6 +113,15 @@ const ServerCaptcha = ({
   }, [apiUrl]);
 
   useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Shake the image when the parent signals an error (wrong answer from backend)
+  const prevExternalError = useRef('');
+  useEffect(() => {
+    if (externalError && externalError !== prevExternalError.current) {
+      setShaking(true);
+    }
+    prevExternalError.current = externalError;
+  }, [externalError]);
 
   const prevTrigger = useRef(0);
   useEffect(() => {
@@ -189,18 +199,33 @@ const ServerCaptcha = ({
 
   return (
     <div style={{ fontFamily: 'inherit' }}>
+      <style>{`
+        @keyframes captcha-shake {
+          0%,100% { transform: translateX(0);    }
+          15%     { transform: translateX(-9px); }
+          30%     { transform: translateX(8px);  }
+          45%     { transform: translateX(-6px); }
+          60%     { transform: translateX(5px);  }
+          75%     { transform: translateX(-3px); }
+          90%     { transform: translateX(2px);  }
+        }
+      `}</style>
 
       {/* Image + controls row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
 
         {/* Captcha image */}
-        <div style={{
-          flex: 1, borderRadius: '10px', overflow: 'hidden',
-          border: `1.5px solid ${displayError ? '#e11d48' : '#e2e8f0'}`,
-          background: '#f8fafc', minHeight: '62px',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'border-color 0.15s',
-        }}>
+        <div
+          style={{
+            flex: 1, borderRadius: '10px', overflow: 'hidden',
+            border: `1.5px solid ${displayError ? '#e11d48' : '#e2e8f0'}`,
+            background: '#f8fafc', minHeight: '62px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'border-color 0.15s',
+            animation: shaking ? 'captcha-shake 0.45s ease-in-out' : 'none',
+          }}
+          onAnimationEnd={() => setShaking(false)}
+        >
           {loading ? (
             <span style={{ fontSize: '12px', color: '#64748b' }}>Loading captcha…</span>
           ) : imgB64 ? (

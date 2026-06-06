@@ -58,6 +58,7 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
   const [input,    setInput]   = useState('');
   const [error,    setError]   = useState('');
   const [speaking, setSpeaking] = useState(false);
+  const [shaking,  setShaking]  = useState(false);
 
   // Detect Web Speech API support once
   const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -191,6 +192,7 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
       const ok = input.trim().toUpperCase() === captchaRef.current.toUpperCase();
       if (!ok) {
         setError('Incorrect code — a new image has been loaded. Please try again.');
+        setShaking(true);
         refresh();
       } else {
         setError('');
@@ -205,6 +207,17 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
 
   return (
     <div style={{ fontFamily: 'inherit' }}>
+      <style>{`
+        @keyframes captcha-shake {
+          0%,100% { transform: translateX(0);    }
+          15%     { transform: translateX(-9px); }
+          30%     { transform: translateX(8px);  }
+          45%     { transform: translateX(-6px); }
+          60%     { transform: translateX(5px);  }
+          75%     { transform: translateX(-3px); }
+          90%     { transform: translateX(2px);  }
+        }
+      `}</style>
 
       {/* Canvas */}
       <canvas
@@ -216,7 +229,9 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
           border: `1.5px solid ${displayError ? '#e11d48' : '#e2e8f0'}`,
           display: 'block', userSelect: 'none', boxSizing: 'border-box',
           marginBottom: '6px', transition: 'border-color 0.15s',
+          animation: shaking ? 'captcha-shake 0.45s ease-in-out' : 'none',
         }}
+        onAnimationEnd={() => setShaking(false)}
         aria-label="Captcha image — type the characters shown, or use the Listen button"
       />
 

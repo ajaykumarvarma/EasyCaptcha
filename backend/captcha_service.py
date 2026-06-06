@@ -580,8 +580,8 @@ async def verify_captcha(
         {"$set": {"used": True}},
     )
 
-    # ── Answer check (case-insensitive) ───────────────────────────────
-    if doc["code"].upper() != payload.answer.strip().upper():
+    # ── Answer check (strict case — must match exactly as displayed) ────────
+    if doc["code"] != payload.answer.strip():
         logger.debug("Wrong answer  |  token: %s", payload.token_id[:8])
         return VerifyResponse(valid=False, error_code="wrong_answer")
 

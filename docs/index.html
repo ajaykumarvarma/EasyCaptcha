@@ -747,8 +747,8 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Get a new code
           </button>
-          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters (case-insensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('canvasStatus'); s.className='captcha-status'; s.innerHTML='';" />
-          <div class="captcha-hint">Case-insensitive &middot; 5 characters &middot; Mixed case + digits &middot; No ambiguous chars (I/i/l/O/o/0/1)</div>
+          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters (case-sensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('canvasStatus'); s.className='captcha-status'; s.innerHTML='';" />
+          <div class="captcha-hint">Case-sensitive &middot; 5 characters &middot; Mixed case + digits &middot; No ambiguous chars (I/i/l/O/o/0/1)</div>
           <button class="captcha-submit" onclick="validateCanvas()">Validate</button>
           <div class="captcha-status" id="canvasStatus"></div>
         </div>
@@ -822,7 +822,7 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh image
           </button>
-          <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters (case-insensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('serverStatus'); s.className='captcha-status'; s.innerHTML='';" />
+          <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters (case-sensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('serverStatus'); s.className='captcha-status'; s.innerHTML='';" />
           <div class="captcha-hint" id="serverHint">Enter backend URL above and click Load</div>
           <button class="captcha-submit" onclick="validateServer()" id="serverSubmit" disabled style="opacity:0.5;cursor:not-allowed">Validate</button>
           <div class="captcha-status" id="serverStatus"></div>
@@ -1045,8 +1045,8 @@ function refreshCanvas() {
 function validateCanvas() {
   const input  = document.getElementById('canvasInput').value.trim();
   const status = document.getElementById('canvasStatus');
-  // Case-insensitive comparison — user can type either case
-  if (input.toUpperCase() === canvasCode.toUpperCase()) {
+  // Strict case comparison — user must type upper/lowercase exactly as shown
+  if (input === canvasCode) {
     status.className = 'captcha-status success';
     status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Correct! The captcha was validated.';
   } else {

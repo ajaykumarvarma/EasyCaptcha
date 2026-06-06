@@ -355,7 +355,7 @@ const ServerCaptcha = ({
         </p>
       ) : (
         <p id="captcha-hint" style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>
-          Case-insensitive &middot; {captchaLength} chars
+          Case-sensitive &middot; {captchaLength} chars
           {audioAvailable ? ' · Use the speaker button to hear the characters' : ''}
         </p>
       )}

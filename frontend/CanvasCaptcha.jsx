@@ -313,7 +313,7 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
         </p>
       ) : (
         <p id="canvas-captcha-hint" style={{ fontSize: '11px', color: '#94a3b8', margin: '6px 0 0' }}>
-          Case-insensitive &middot; {length} characters
+          Case-sensitive &middot; {length} characters
           {speechSupported ? ' · Use the Listen button for audio' : ''}
         </p>
       )}

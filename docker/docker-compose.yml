@@ -8,33 +8,49 @@ services:
     ports:
       - "8080:8080"
     environment:
-      MONGODB_URL:        mongodb://mongo:27017
-      DB_NAME:            easycaptcha
-      # Change this to a strong random secret before deploying!
-      # Generate one: python -c "import secrets; print(secrets.token_hex(32))"
-      API_SECRET_KEY:     change-me-in-production
-      # Restrict to your frontend origin in production, e.g. https://yourdomain.com
-      ALLOWED_ORIGINS:    "http://localhost:3000,http://localhost:5173"
-      TOKEN_TTL_MINUTES:  "5"
-      RATE_LIMIT_PER_MIN: "15"
-      CAPTCHA_LENGTH:     "5"
-      LOG_LEVEL:          INFO
+      # Uses the limited-privilege app user created by mongo-init.js
+      MONGODB_URL:          mongodb://captcha_svc:${MONGO_CAPTCHA_PASSWORD:-change-me-in-production}@mongo:27017/easycaptcha
+      DB_NAME:              easycaptcha
+      # Generate a strong key: python -c "import secrets; print(secrets.token_hex(32))"
+      API_SECRET_KEY:       ${API_SECRET_KEY:-change-me-in-production}
+      ALLOWED_ORIGINS:      ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      TOKEN_TTL_MINUTES:    "5"
+      RATE_LIMIT_PER_MIN:   "15"
+      VERIFY_LIMIT_PER_MIN: "60"
+      AUDIO_LIMIT_PER_MIN:  "20"
+      CAPTCHA_LENGTH:       "5"
+      # Set to "true" to reject verify calls where the client IP does not match
+      # the IP that originally requested the captcha (requires integrator to
+      # forward the end-user's IP in the VerifyRequest.client_ip field).
+      ENFORCE_IP_BINDING:   ${ENFORCE_IP_BINDING:-false}
+      LOG_LEVEL:            ${LOG_LEVEL:-INFO}
     depends_on:
       mongo:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── MongoDB ───────────────────────────────────────────────────────────────
+  # ── MongoDB 7 (authentication enabled) ──────────────────────────────────
   mongo:
     image: mongo:7
+    environment:
+      # Root admin credentials — only used for initial setup and emergencies
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-change-me-in-production}
+      MONGO_INITDB_DATABASE:      easycaptcha
+      # Application-level credentials — passed to the init script below
+      MONGO_CAPTCHA_PASSWORD:     ${MONGO_CAPTCHA_PASSWORD:-change-me-in-production}
     volumes:
       - mongo_data:/data/db
+      # Runs once on first start — creates the limited-privilege captcha_svc user
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/01-captcha-user.js:ro
     healthcheck:
+      # db.adminCommand('ping') is available to unauthenticated connections in
+      # all MongoDB versions — safe to use even with auth enabled.
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout:  5s
-      retries:  5
-      start_period: 10s
+      interval:     10s
+      timeout:      5s
+      retries:      5
+      start_period: 15s
     restart: unless-stopped
 
 volumes:

@@ -1,8 +1,9 @@
 FROM python:3.11-slim
 
-# Install system fonts so PIL can render bold text in captcha images
+# Install system fonts (PIL rendering) + espeak-ng (audio captcha accessibility)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
+        espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

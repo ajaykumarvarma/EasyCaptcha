@@ -1,9 +1,11 @@
 # EasyCaptcha — Project Memory
 
 ## Original Problem Statement
-"Check all the codes make sure if it's working fine with proper testing it's kind of open source captcha I just stored in my repo for public use. They should be directly able to integrate in their website forms. Could you please check for any possible bugs wrong logics errors and proper exception handling?"
+"Check all the codes make sure if it's working fine with proper testing it's kind of open source captcha I just stored in my repo for public use."
 
-**Follow-up:** Fix all bugs, add wrong-answer feedback, reload button, anti-bot/anti-OCR security, lowercase characters, and all enhancements from review.
+**Follow-up 1 (v1.1.0):** Fix all bugs, add wrong-answer feedback, reload button, anti-bot/anti-OCR security, lowercase characters, and all enhancements.
+
+**Follow-up 2 (v1.2.0):** MongoDB auth, IP binding, Audio CAPTCHA (WCAG 2.1).
 
 ---
 
@@ -11,100 +13,105 @@
 https://github.com/ajaykumarvarma/EasyCaptcha
 
 ## Architecture
-- **backend/captcha_service.py** — FastAPI service (token generation, verification, stats)
-- **frontend/ServerCaptcha.jsx** — React drop-in component (server-side variant)
-- **frontend/CanvasCaptcha.jsx** — React drop-in component (client-side canvas variant)
-- **backend/test_captcha.py** + **conftest.py** — Test suite
-- **docs/index.html** — Live demo page
-- **docker/docker-compose.yml** — Docker + MongoDB compose
+- `backend/captcha_service.py` — FastAPI service
+- `frontend/ServerCaptcha.jsx` — React server-side component
+- `frontend/CanvasCaptcha.jsx` — React client-side canvas component
+- `backend/test_captcha.py` + `conftest.py` — Test suite (46 tests)
+- `docs/index.html` — Live demo page
+- `docker/docker-compose.yml` — Docker + MongoDB compose
+- `docker/mongo-init.js` — MongoDB init script (creates captcha_svc user)
 
 ---
 
-## What Was Implemented (June 2026 — v1.1.0)
+## What Was Implemented
 
-### Backend (captcha_service.py)
-- [x] **MongoDB unique index on `token_id`** — O(1) lookup instead of O(n) full-scan
-- [x] **Rate limiter memory leak fixed** — plain dict (not defaultdict), background asyncio cleanup task every 5 min
-- [x] **Token consumed on ANY verify call** (correct OR wrong) — prevents brute-force guessing
-- [x] **Rate limiting added to /captcha/verify** — 60 req/min/IP via `VERIFY_LIMIT_PER_MIN`
-- [x] **Mixed-case character pool** — 55 chars: ABCDEF...XYZ + abcdef...xyz (no i/l/o) + 23456789 — defeats uppercase OCR solvers
-- [x] **Font path cached at startup** — no per-request filesystem probes
-- [x] **Wave distortion** — sinusoidal row-shift breaks OCR character segmentation
-- [x] **Foreground noise lines** — drawn OVER characters, not just background
-- [x] **VerifyResponse.error_code** — "not_found" | "expired" | "already_used" | "wrong_answer" for integrator debugging
-- [x] **Better startup errors** — `_require_env()` raises RuntimeError with clear message instead of bare KeyError
-- [x] **Version bumped to 1.1.0**
+### v1.1.0 (Bug fixes + Security hardening)
+- [x] MongoDB unique index on token_id (O(1) lookup)
+- [x] Rate limiter memory leak fixed + background cleanup task
+- [x] Token consumed on wrong answer too (prevents brute-force)
+- [x] Rate limiting on /captcha/verify endpoint
+- [x] Mixed-case character pool (55 chars: upper+lower+digits, no i/l/o/I/O/0/1)
+- [x] Font path cached at startup
+- [x] Wave distortion + foreground noise (anti-OCR)
+- [x] VerifyResponse.error_code for debugging
+- [x] Better startup errors (_require_env)
+- [x] Reload button in both components
+- [x] Wrong-answer error UI with red message + icon
+- [x] All GitHub placeholder URLs replaced
+- [x] backend/.env.example and requirements-dev.txt added
+- [x] Version: 1.1.0
 
-### Frontend (ServerCaptcha.jsx)
-- [x] **onReady ref pattern** — eliminates re-render loops when parent passes inline function
-- [x] **Reload button** — with disabled state during loading, hover effect
-- [x] **Mixed-case input** — removed forced uppercase, regex allows `[^A-Za-z0-9]`
-- [x] **Wrong-answer error UI** — icon + red message with proper error display
-- [x] **Input disabled during loading** — prevents submitting before captcha loads
-
-### Frontend (CanvasCaptcha.jsx)
-- [x] **Mixed-case characters** — `CAPTCHA_CHARS` expanded to 55 chars
-- [x] **Case-insensitive comparison fix** — `input.toUpperCase() === captchaRef.current.toUpperCase()`
-- [x] **Foreground noise lines** — 4 lines drawn over characters in canvas
-- [x] **Wrong-answer error UI** — icon + red message
-- [x] **Reload button** — "Get a new code" link
-
-### Docs (docs/index.html)
-- [x] **Live demo URL** — replaced all `your-username` placeholders with `ajaykumarvarma`
-- [x] **Canvas CHARS** — updated to mixed-case pool
-- [x] **Case-insensitive validation** — `input.toUpperCase() === canvasCode.toUpperCase()`
-- [x] **Foreground noise** — added to refreshCanvas() demo
-- [x] **ServerCaptcha verify message** — explains backend-only requirement clearly
-
-### New Files
-- [x] **backend/.env.example** — template with all config options documented
-- [x] **backend/requirements-dev.txt** — pytest, httpx for running tests
-
-### README
-- [x] Replaced placeholder GitHub URLs with actual repo URL
-
-### Tests (test_captcha.py)
-- [x] **30 tests pass** (5 integration tests skip without live server)
-- [x] New tests: mixed-case image generation, lowercase chars validation, verify rate limit isolation
-- [x] Updated assertions for token-consumed-on-wrong-answer behavior
-- [x] Updated `TestCharacterSet` to check lowercase included and ambiguous lowercase excluded
+### v1.2.0 (MongoDB auth + IP binding + Audio CAPTCHA)
+- [x] **MongoDB authentication in docker-compose:**
+  - Root admin: `MONGO_ROOT_USERNAME`/`MONGO_ROOT_PASSWORD`
+  - App user: `captcha_svc` (readWrite on easycaptcha db only) — least privilege
+  - `docker/mongo-init.js` creates captcha_svc on first start
+  - `docker/.env.example` — template for Docker secrets
+  - healthcheck uses `db.adminCommand('ping')` (works without auth)
+- [x] **IP Binding:**
+  - Token stores originating IP at generation time
+  - `ENFORCE_IP_BINDING=true` env var enables strict mode
+  - `VerifyRequest.client_ip` optional field — integrator passes end-user IP
+  - New error codes: `ip_missing` | `ip_mismatch`
+  - Backward-compatible (default: false)
+- [x] **Audio CAPTCHA (WCAG 2.1 SC 1.1.1):**
+  - Backend: `GET /captcha/audio/{token_id}` → WAV via espeak-ng
+  - `CaptchaResponse.audio_available` tells frontend if espeak-ng is installed
+  - `AUDIO_LIMIT_PER_MIN` rate limiting (default 20/min)
+  - espeak-ng added to Dockerfile
+  - `ServerCaptcha.jsx`: speaker button plays WAV from backend
+  - `CanvasCaptcha.jsx`: speaker button uses Web Speech API (browser-native, offline)
+  - Both: Stop button to cancel audio mid-playback
+  - Graceful degradation when unavailable (button hidden, no errors)
+- [x] Version: 1.2.0
+- [x] 37 tests pass (9 skipped: audio tests need espeak-ng, integration tests need live service)
 
 ---
 
 ## Test Results
 ```
-30 passed, 5 skipped (integration — need live service)
+37 passed, 9 skipped
+- Audio WAV tests: skip when espeak-ng not installed (installed in Docker)
+- Integration tests: skip without --integration flag + live server
 ```
+
+---
+
+## Config Reference (v1.2.0)
+| Env Var | Default | Description |
+|---|---|---|
+| MONGODB_URL | required | MongoDB connection string |
+| API_SECRET_KEY | required | Secret for X-API-Key header |
+| DB_NAME | easycaptcha | Database name |
+| ALLOWED_ORIGINS | * | CORS origins |
+| TOKEN_TTL_MINUTES | 5 | Token expiry |
+| RATE_LIMIT_PER_MIN | 15 | GET /captcha limit/IP/min |
+| VERIFY_LIMIT_PER_MIN | 60 | POST /captcha/verify limit/IP/min |
+| AUDIO_LIMIT_PER_MIN | 20 | GET /captcha/audio limit/IP/min |
+| CAPTCHA_LENGTH | 5 | Chars per challenge |
+| ENFORCE_IP_BINDING | false | Reject verify if client_ip mismatch |
+| LOG_LEVEL | INFO | DEBUG/INFO/WARNING/ERROR |
+
+## Docker Secrets (docker/.env.example)
+| Var | Purpose |
+|---|---|
+| MONGO_ROOT_USERNAME | MongoDB root admin user |
+| MONGO_ROOT_PASSWORD | MongoDB root admin password |
+| MONGO_CAPTCHA_PASSWORD | captcha_svc app user password |
+| API_SECRET_KEY | EasyCaptcha API secret |
+| ALLOWED_ORIGINS | CORS whitelist |
+| ENFORCE_IP_BINDING | IP binding toggle |
 
 ---
 
 ## Prioritized Backlog
 
-### P0 (Blocking)
-- None — all critical bugs fixed
-
 ### P1 (Important)
-- MongoDB auth in docker-compose (currently unauthenticated)
-- HTTPS/TLS config documentation for production
-- IP binding: bind token to originating IP at generation time, reject cross-IP verify
+- HTTPS/TLS documentation for production reverse proxy (nginx/caddy)
+- Redis-backed rate limiter (current in-memory resets on restart)
 
 ### P2 (Nice to have)
-- Redis-backed rate limiter (current in-memory resets on restart)
-- Math captcha variant (addition/subtraction)
-- Audio captcha alternative for accessibility
-- `CAPTCHA_LENGTH` per-request randomisation (e.g., 4–6 chars)
-
----
-
-## Config Reference (v1.1.0)
-| Env Var | Default | Description |
-|---|---|---|
-| MONGODB_URL | required | MongoDB connection string |
-| API_SECRET_KEY | required | Secret for /captcha/verify X-API-Key |
-| DB_NAME | easycaptcha | MongoDB database name |
-| ALLOWED_ORIGINS | * | Comma-separated CORS origins |
-| TOKEN_TTL_MINUTES | 5 | Minutes until token expires |
-| RATE_LIMIT_PER_MIN | 15 | Max GET /captcha per IP/min |
-| VERIFY_LIMIT_PER_MIN | 60 | Max POST /captcha/verify per IP/min |
-| CAPTCHA_LENGTH | 5 | Characters per challenge |
-| LOG_LEVEL | INFO | DEBUG/INFO/WARNING/ERROR |
+- Math captcha variant
+- Animated loading skeleton in React components
+- `CAPTCHA_LENGTH` per-request randomisation (4-6 chars)
+- Cypress/Playwright end-to-end tests against the demo page

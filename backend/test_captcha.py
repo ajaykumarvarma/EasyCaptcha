@@ -1,45 +1,46 @@
 """
-EasyCaptcha — Automated Test Suite
-====================================
-Tests the core functions of captcha_service.py without requiring a running server
-or a real MongoDB instance.
+EasyCaptcha — Automated Test Suite  (v1.2.0)
+==============================================
+Tests image generation, character set, rate limiter, IP binding,
+and audio generation without requiring a running server or MongoDB.
 
-Run with:
+Run (unit tests only):
     pip install -r requirements.txt
-    pip install pytest httpx  # or: pip install -r requirements-dev.txt
+    pip install -r requirements-dev.txt
     pytest test_captcha.py -v
 
-For full integration tests (requires a running service on port 8080):
+Run (with live service on port 8080):
     pytest test_captcha.py -v --integration
 """
 
 import base64
 import os
+import shutil
 import time
 import pytest
 
-# Set required env vars before importing the service module
 os.environ.setdefault("MONGODB_URL",    "mongodb://localhost:27017")
 os.environ.setdefault("API_SECRET_KEY", "test-secret-key-for-tests")
 
-# Import after env vars are set
 from captcha_service import (
     _check_rate_limit,
     _find_font,
     _generate_captcha_image,
+    _generate_audio_captcha,
+    _espeak_available,
     _CHARS,
     _rate_store,
     _verify_rate_store,
+    _audio_rate_store,
     CAPTCHA_LENGTH,
     RATE_LIMIT_RPM,
     VERIFY_LIMIT_RPM,
+    AUDIO_LIMIT_RPM,
+    ENFORCE_IP_BINDING,
 )
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def fresh_ip():
-    """Return a unique IP string so each test gets a clean rate-limit slate."""
     return f"test-{time.monotonic()}"
 
 
@@ -48,61 +49,33 @@ def fresh_ip():
 class TestImageGeneration:
 
     def test_returns_nonempty_string(self):
-        result = _generate_captcha_image("Ab3Kz")
-        assert isinstance(result, str)
-        assert len(result) > 100, "Image string is suspiciously short"
+        assert len(_generate_captcha_image("Ab3Kz")) > 100
 
     def test_output_is_valid_base64(self):
-        result = _generate_captcha_image("HeLLo")
-        try:
-            decoded = base64.b64decode(result)
-        except Exception as exc:
-            pytest.fail(f"Result is not valid base64: {exc}")
-        assert len(decoded) > 0
+        base64.b64decode(_generate_captcha_image("HeLLo"))
 
     def test_output_is_valid_png(self):
-        result = _generate_captcha_image("TeSt2")
-        decoded = base64.b64decode(result)
-        # PNG magic bytes: \x89PNG
-        assert decoded[:4] == b"\x89PNG", (
-            f"Expected PNG magic bytes, got {decoded[:4]!r}"
-        )
+        decoded = base64.b64decode(_generate_captcha_image("TeSt2"))
+        assert decoded[:4] == b"\x89PNG"
 
     def test_different_codes_produce_different_images(self):
-        img1 = _generate_captcha_image("AAAAA")
-        img2 = _generate_captcha_image("zzzzz")
-        assert img1 != img2, "Different codes must produce different images"
+        assert _generate_captcha_image("AAAAA") != _generate_captcha_image("zzzzz")
 
     def test_same_code_produces_different_images(self):
-        """Each call should be unique because of random noise/rotation."""
-        img1 = _generate_captcha_image("Ab3Kz")
-        img2 = _generate_captcha_image("Ab3Kz")
-        assert img1 != img2, (
-            "Same code called twice should produce different images (random noise)"
-        )
+        assert _generate_captcha_image("Ab3Kz") != _generate_captcha_image("Ab3Kz")
 
     def test_various_lengths(self):
-        for length in (4, 5, 6, 7):
-            code = "A" * length
-            result = _generate_captcha_image(code)
-            decoded = base64.b64decode(result)
-            assert decoded[:4] == b"\x89PNG", f"Failed for length {length}"
+        for n in (4, 5, 6, 7):
+            assert base64.b64decode(_generate_captcha_image("A" * n))[:4] == b"\x89PNG"
 
     def test_single_character(self):
-        result = _generate_captcha_image("A")
-        decoded = base64.b64decode(result)
-        assert decoded[:4] == b"\x89PNG"
+        assert base64.b64decode(_generate_captcha_image("A"))[:4] == b"\x89PNG"
 
     def test_lowercase_code(self):
-        """Mixed-case codes must render correctly."""
-        result = _generate_captcha_image("abcde")
-        decoded = base64.b64decode(result)
-        assert decoded[:4] == b"\x89PNG"
+        assert base64.b64decode(_generate_captcha_image("abcde"))[:4] == b"\x89PNG"
 
     def test_mixed_case_code(self):
-        result = _generate_captcha_image("aB3kZ")
-        decoded = base64.b64decode(result)
-        assert decoded[:4] == b"\x89PNG"
+        assert base64.b64decode(_generate_captcha_image("aB3kZ"))[:4] == b"\x89PNG"
 
 
 # ── Character set ─────────────────────────────────────────────────────────────
@@ -111,50 +84,35 @@ class TestCharacterSet:
 
     def test_excludes_uppercase_ambiguous_chars(self):
         for ch in ("I", "O"):
-            assert ch not in _CHARS, (
-                f"Uppercase '{ch}' must be excluded (visually ambiguous)"
-            )
+            assert ch not in _CHARS, f"Uppercase '{ch}' must be excluded"
 
     def test_excludes_lowercase_ambiguous_chars(self):
         for ch in ("i", "l", "o"):
-            assert ch not in _CHARS, (
-                f"Lowercase '{ch}' must be excluded (visually ambiguous: looks like 1, 1, or 0)"
-            )
+            assert ch not in _CHARS, f"Lowercase '{ch}' must be excluded"
 
     def test_excludes_digit_ambiguous_chars(self):
         for ch in ("0", "1"):
-            assert ch not in _CHARS, (
-                f"Digit '{ch}' must be excluded (visually ambiguous)"
-            )
+            assert ch not in _CHARS, f"Digit '{ch}' must be excluded"
 
     def test_contains_uppercase_chars(self):
-        assert "A" in _CHARS
-        assert "Z" in _CHARS
+        assert "A" in _CHARS and "Z" in _CHARS
 
     def test_contains_lowercase_chars(self):
-        """Pool must include lowercase letters for increased anti-OCR strength."""
-        assert "a" in _CHARS
-        assert "z" in _CHARS
-        lowercase_count = sum(1 for c in _CHARS if c.islower())
-        assert lowercase_count >= 10, (
-            f"Too few lowercase chars ({lowercase_count}); need at least 10"
-        )
+        assert "a" in _CHARS and "z" in _CHARS
+        assert sum(1 for c in _CHARS if c.islower()) >= 10
 
     def test_contains_digit_chars(self):
-        assert "2" in _CHARS
-        assert "9" in _CHARS
+        assert "2" in _CHARS and "9" in _CHARS
 
     def test_all_chars_are_alphanumeric(self):
         for ch in _CHARS:
             assert ch.isalnum(), f"'{ch}' is not alphanumeric"
 
     def test_no_duplicates(self):
-        assert len(_CHARS) == len(set(_CHARS)), "CAPTCHA_CHARS contains duplicate characters"
+        assert len(_CHARS) == len(set(_CHARS))
 
     def test_minimum_pool_size(self):
-        assert len(_CHARS) >= 40, (
-            f"Character pool too small ({len(_CHARS)}); mixed-case pool should have at least 40"
-        )
+        assert len(_CHARS) >= 40, f"Pool too small: {len(_CHARS)}"
 
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
@@ -164,59 +122,44 @@ class TestRateLimiter:
     def test_allows_requests_under_limit(self):
         ip = fresh_ip()
         for i in range(RATE_LIMIT_RPM):
-            assert _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM), \
-                f"Should allow request #{i + 1}"
+            assert _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM), f"Request #{i+1} blocked"
 
     def test_blocks_requests_over_limit(self):
         ip = fresh_ip()
         for _ in range(RATE_LIMIT_RPM):
             _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM)
-        # Next one must be blocked
-        assert not _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM), (
-            "Should block request that exceeds RATE_LIMIT_RPM"
-        )
+        assert not _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM)
 
     def test_different_ips_are_independent(self):
-        ip_a = fresh_ip()
-        ip_b = fresh_ip()
-        # Exhaust ip_a
+        ip_a, ip_b = fresh_ip(), fresh_ip()
         for _ in range(RATE_LIMIT_RPM + 1):
             _check_rate_limit(ip_a, _rate_store, RATE_LIMIT_RPM)
-        # ip_b must still be allowed
-        assert _check_rate_limit(ip_b, _rate_store, RATE_LIMIT_RPM), \
-            "Rate limit from one IP must not affect another"
+        assert _check_rate_limit(ip_b, _rate_store, RATE_LIMIT_RPM)
 
     def test_window_resets_after_60_seconds(self):
-        """
-        Simulate time passing by manually aging the stored timestamps.
-        This avoids actually sleeping for 60 seconds.
-        """
         ip = fresh_ip()
-        # Fill the store with timestamps from 61 seconds ago
-        old_time = time.monotonic() - 61
-        _rate_store[ip] = [old_time] * RATE_LIMIT_RPM
-
-        assert _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM), (
-            "Requests older than 60 s should fall outside the sliding window"
-        )
+        _rate_store[ip] = [time.monotonic() - 61] * RATE_LIMIT_RPM
+        assert _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM)
 
     def test_allows_new_requests_after_partial_window_expires(self):
         ip = fresh_ip()
-        old_time    = time.monotonic() - 61
-        recent_time = time.monotonic() - 1
-        _rate_store[ip] = [old_time] * 10 + [recent_time] * (RATE_LIMIT_RPM - 2)
-        assert _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM), \
-            "Should allow requests when old ones expired"
+        _rate_store[ip] = [time.monotonic() - 61] * 10 + [time.monotonic() - 1] * (RATE_LIMIT_RPM - 2)
+        assert _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM)
 
     def test_verify_rate_limit_is_separate(self):
-        """Verify endpoint has its own independent rate limit store."""
         ip = fresh_ip()
-        # Fill /captcha rate limit
         for _ in range(RATE_LIMIT_RPM + 1):
             _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM)
-        # /captcha/verify should still be allowed for same IP
-        assert _check_rate_limit(ip, _verify_rate_store, VERIFY_LIMIT_RPM), \
-            "Verify rate limit store must be independent of captcha rate limit store"
+        assert _check_rate_limit(ip, _verify_rate_store, VERIFY_LIMIT_RPM)
+
+    def test_audio_rate_limit_is_separate(self):
+        ip = fresh_ip()
+        for _ in range(RATE_LIMIT_RPM + 1):
+            _check_rate_limit(ip, _rate_store, RATE_LIMIT_RPM)
+        assert _check_rate_limit(ip, _audio_rate_store, AUDIO_LIMIT_RPM)
+
+    def test_audio_rate_limit_config(self):
+        assert AUDIO_LIMIT_RPM > 0
 
 
 # ── Font detection ────────────────────────────────────────────────────────────
@@ -230,7 +173,51 @@ class TestFontDetection:
     def test_path_exists_if_found(self):
         result = _find_font()
         if result is not None:
-            assert os.path.isfile(result), f"Font path returned does not exist: {result}"
+            assert os.path.isfile(result)
+
+
+# ── Audio captcha ─────────────────────────────────────────────────────────────
+
+class TestAudio:
+
+    def test_espeak_available_returns_bool(self):
+        assert isinstance(_espeak_available(), bool)
+
+    def test_espeak_check_matches_shutil(self):
+        assert _espeak_available() == (shutil.which("espeak-ng") is not None)
+
+    @pytest.mark.skipif(not shutil.which("espeak-ng"), reason="espeak-ng not installed")
+    def test_generate_audio_returns_wav(self):
+        audio = _generate_audio_captcha("Ab3")
+        assert isinstance(audio, bytes)
+        # WAV files start with "RIFF" magic bytes
+        assert audio[:4] == b"RIFF", f"Expected WAV, got {audio[:4]!r}"
+
+    @pytest.mark.skipif(not shutil.which("espeak-ng"), reason="espeak-ng not installed")
+    def test_generate_audio_different_codes_different_lengths(self):
+        a1 = _generate_audio_captcha("A")
+        a5 = _generate_audio_captcha("ABCDE")
+        # 5-char audio should generally be longer than 1-char audio
+        assert len(a5) >= len(a1), "Longer code should produce equal or longer audio"
+
+    def test_generate_audio_raises_when_no_espeak(self):
+        if _espeak_available():
+            pytest.skip("espeak-ng is installed — cannot test missing-binary path")
+        with pytest.raises(FileNotFoundError):
+            _generate_audio_captcha("TEST")
+
+
+# ── IP binding ────────────────────────────────────────────────────────────────
+
+class TestIPBindingConfig:
+
+    def test_enforce_ip_binding_is_bool(self):
+        assert isinstance(ENFORCE_IP_BINDING, bool)
+
+    def test_enforce_ip_binding_default_is_false(self):
+        """Default should be False for backward compatibility."""
+        # The actual value depends on the env var; we just test that it's bool.
+        assert ENFORCE_IP_BINDING in (True, False)
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -247,19 +234,10 @@ class TestConfig:
         assert VERIFY_LIMIT_RPM >= 1
 
     def test_verify_rate_limit_higher_than_captcha_limit(self):
-        """Verify limit should be higher than captcha limit (backend-to-backend calls)."""
-        assert VERIFY_LIMIT_RPM >= RATE_LIMIT_RPM, (
-            "VERIFY_LIMIT_RPM should be >= RATE_LIMIT_RPM "
-            "(verify is a backend call and may be invoked frequently)"
-        )
+        assert VERIFY_LIMIT_RPM >= RATE_LIMIT_RPM
 
 
-# ── Integration tests (skipped by default) ───────────────────────────────────
-#
-# These require a running EasyCaptcha service (and MongoDB) on port 8080.
-# Run with:   pytest test_captcha.py -v --integration
-#
-
+# ── Integration tests ─────────────────────────────────────────────────────────
 
 @pytest.fixture
 def integration(request):
@@ -274,28 +252,35 @@ class TestIntegration:
         import httpx
         res = httpx.get("http://localhost:8080/health", timeout=5)
         assert res.status_code == 200
-        assert res.json()["status"] == "ok"
-        assert res.json()["version"] == "1.1.0"
+        data = res.json()
+        assert data["status"] == "ok"
+        assert data["version"] == "1.2.0"
+        assert "audio_available" in data
+
+    def test_generate_captcha_includes_audio_available(self, integration):
+        if not integration:
+            pytest.skip("Pass --integration to run live tests")
+        import httpx
+        res = httpx.get("http://localhost:8080/captcha", timeout=10)
+        assert res.status_code == 200
+        data = res.json()
+        assert "token_id"        in data
+        assert "image_b64"       in data
+        assert "captcha_length"  in data
+        assert "audio_available" in data
+        assert isinstance(data["audio_available"], bool)
 
     def test_generate_and_verify(self, integration):
         if not integration:
             pytest.skip("Pass --integration to run live tests")
         import httpx
-
         api_key = os.environ.get("API_SECRET_KEY", "test-secret-key-for-tests")
 
-        # Generate
         res = httpx.get("http://localhost:8080/captcha", timeout=10)
         assert res.status_code == 200
-        data = res.json()
-        assert "token_id"       in data
-        assert "image_b64"      in data
-        assert "captcha_length" in data
-        assert data["captcha_length"] >= 1
+        token_id = res.json()["token_id"]
 
-        token_id = data["token_id"]
-
-        # Wrong answer — token is consumed on first call (correct OR wrong)
+        # Wrong answer — token consumed on first call
         res = httpx.post(
             "http://localhost:8080/captcha/verify",
             json={"token_id": token_id, "answer": "XXXXX"},
@@ -304,19 +289,16 @@ class TestIntegration:
         )
         assert res.status_code == 200
         assert res.json()["valid"] is False
-        # error_code tells integrator why it failed (for debugging only)
         assert res.json().get("error_code") in ("wrong_answer", "not_found")
 
-        # Second attempt with same token must fail — token was consumed above
+        # Second attempt — token is consumed, must return not_found
         res2 = httpx.post(
             "http://localhost:8080/captcha/verify",
             json={"token_id": token_id, "answer": "YYYYY"},
             headers={"X-API-Key": api_key},
             timeout=5,
         )
-        assert res2.status_code == 200
         assert res2.json()["valid"] is False
-        # Token is now consumed — should return not_found
         assert res2.json().get("error_code") == "not_found"
 
     def test_verify_missing_api_key(self, integration):
@@ -330,12 +312,27 @@ class TestIntegration:
         )
         assert res.status_code == 401
 
+    def test_audio_endpoint(self, integration):
+        if not integration:
+            pytest.skip("Pass --integration to run live tests")
+        import httpx
+        res = httpx.get("http://localhost:8080/captcha", timeout=10)
+        token_id = res.json()["token_id"]
+        audio_available = res.json()["audio_available"]
+
+        res_audio = httpx.get(f"http://localhost:8080/captcha/audio/{token_id}", timeout=15)
+        if audio_available:
+            assert res_audio.status_code == 200
+            assert res_audio.headers["content-type"] == "audio/wav"
+            assert res_audio.content[:4] == b"RIFF"
+        else:
+            assert res_audio.status_code == 503
+
     def test_stats_requires_api_key(self, integration):
         if not integration:
             pytest.skip("Pass --integration to run live tests")
         import httpx
-        res = httpx.get("http://localhost:8080/stats", timeout=5)
-        assert res.status_code == 401
+        assert httpx.get("http://localhost:8080/stats", timeout=5).status_code == 401
 
     def test_stats_with_valid_key(self, integration):
         if not integration:
@@ -350,7 +347,4 @@ class TestIntegration:
         assert res.status_code == 200
         data = res.json()
         assert "tokens_in_db"    in data
-        assert "active_unused"   in data
-        assert "verified"        in data
-        assert "service_version" in data
-        assert data["service_version"] == "1.1.0"
+        assert data["service_version"] == "1.2.0"

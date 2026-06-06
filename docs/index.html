@@ -767,14 +767,8 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Get a new code
           </button>
-          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters (case-sensitive)" />
-          <div class="captcha-dots" id="canvasDots">
-            <div class="captcha-dot" id="canvas-dot-0"></div>
-            <div class="captcha-dot" id="canvas-dot-1"></div>
-            <div class="captcha-dot" id="canvas-dot-2"></div>
-            <div class="captcha-dot" id="canvas-dot-3"></div>
-            <div class="captcha-dot" id="canvas-dot-4"></div>
-          </div>
+          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type the characters (case-sensitive)" />
+          <div class="captcha-dots" id="canvasDots"></div>
           <div class="captcha-hint">Case-sensitive &middot; 5 characters &middot; Mixed case + digits &middot; No ambiguous chars (I/i/l/O/o/0/1)</div>
           <button class="captcha-submit" onclick="validateCanvas()">Validate</button>
           <div class="captcha-status" id="canvasStatus"></div>
@@ -997,6 +991,10 @@ const CHARS  = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 const COLORS = ['#1e3a8a','#6b21a8','#9d174d','#0c4a6e','#14532d','#92400e'];
 let canvasCode = '';
 
+/* ── Canvas length randomisation config ─────────────────────────────────── */
+const CANVAS_MIN_LEN = 4;  // Minimum characters per canvas challenge
+const CANVAS_MAX_LEN = 6;  // Maximum characters per canvas challenge
+
 // ── Shake helper — triggers the CSS shake animation on any element ───────────
 function shakeElement(id) {
   const el = document.getElementById(id);
@@ -1012,8 +1010,11 @@ function refreshCanvas() {
   const ctx    = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
 
+  // Pick a random length for this challenge
+  const len = CANVAS_MIN_LEN + Math.floor(Math.random() * (CANVAS_MAX_LEN - CANVAS_MIN_LEN + 1));
+
   canvasCode = '';
-  for (let i = 0; i < 5; i++)
+  for (let i = 0; i < len; i++)
     canvasCode += CHARS[Math.floor(Math.random() * CHARS.length)];
 
   // Background gradient
@@ -1089,8 +1090,14 @@ function refreshCanvas() {
   const s = document.getElementById('canvasStatus');
   s.className = 'captcha-status';
   s.innerHTML = '';
-  // Reset progress dots
-  updateDots('canvas', 0, 5);
+  // Update input maxLength and hint to match new random length
+  const inp = document.getElementById('canvasInput');
+  inp.maxLength = canvasCode.length;
+  inp.placeholder = `Type ${canvasCode.length} characters (case-sensitive)`;
+  document.querySelector('#panel-canvas .captcha-hint').textContent =
+    `Case-sensitive · ${canvasCode.length} characters`;
+  // Rebuild progress dots to match the new length
+  renderCanvasDots(canvasCode.length);
 }
 
 function validateCanvas() {
@@ -1213,6 +1220,18 @@ function updateDots(prefix, filled, total) {
   }
 }
 
+function renderCanvasDots(total) {
+  const container = document.getElementById('canvasDots');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'captcha-dot';
+    dot.id = 'canvas-dot-' + i;
+    container.appendChild(dot);
+  }
+}
+
 function renderServerDots(total, filled) {
   const container = document.getElementById('serverDots');
   if (!container) return;
@@ -1248,13 +1267,13 @@ function copyCode(btn, id) {
 let canvasAutoTimer;
 document.getElementById('canvasInput').addEventListener('input', function () {
   this.value = this.value.replace(/[^A-Za-z0-9]/g, '');
-  updateDots('canvas', this.value.length, 5);
+  updateDots('canvas', this.value.length, canvasCode.length);
   // Clear status while typing (but preserve success message — it's informational)
   const s = document.getElementById('canvasStatus');
   if (s.classList.contains('fail')) { s.className = 'captcha-status'; s.innerHTML = ''; }
   // Auto-validate when all characters entered
   clearTimeout(canvasAutoTimer);
-  if (this.value.length === 5) {
+  if (this.value.length === canvasCode.length) {
     canvasAutoTimer = setTimeout(validateCanvas, 700);
   }
 });

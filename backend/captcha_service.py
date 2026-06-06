@@ -69,6 +69,14 @@ RATE_LIMIT_RPM    = int(os.getenv("RATE_LIMIT_PER_MIN",   "15"))
 VERIFY_LIMIT_RPM  = int(os.getenv("VERIFY_LIMIT_PER_MIN", "60"))
 AUDIO_LIMIT_RPM   = int(os.getenv("AUDIO_LIMIT_PER_MIN",  "20"))
 CAPTCHA_LENGTH    = int(os.getenv("CAPTCHA_LENGTH",        "5"))
+# Per-request length randomisation — set min < max to vary each challenge.
+# Falls back to CAPTCHA_LENGTH if not explicitly set (backward compatible).
+CAPTCHA_LENGTH_MIN = int(os.getenv("CAPTCHA_LENGTH_MIN", str(CAPTCHA_LENGTH)))
+CAPTCHA_LENGTH_MAX = int(os.getenv("CAPTCHA_LENGTH_MAX", str(CAPTCHA_LENGTH)))
+if CAPTCHA_LENGTH_MIN > CAPTCHA_LENGTH_MAX:
+    raise RuntimeError(
+        f"CAPTCHA_LENGTH_MIN ({CAPTCHA_LENGTH_MIN}) must be ≤ CAPTCHA_LENGTH_MAX ({CAPTCHA_LENGTH_MAX})"
+    )
 ENFORCE_IP_BINDING = os.getenv("ENFORCE_IP_BINDING", "false").strip().lower() == "true"
 CAPTCHA_MIN_SOLVE_MS = int(os.getenv("CAPTCHA_MIN_SOLVE_MS", "1500"))  # 0 = disabled
 LOG_LEVEL         = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -296,8 +304,10 @@ async def lifespan(app: FastAPI):
 
     audio_status = "available" if _espeak_available() else "unavailable (install espeak-ng)"
     logger.info(
-        "EasyCaptcha ready  |  DB: %s  |  TTL: %d min  |  IP binding: %s  |  audio: %s  |  min_solve: %dms  |  v1.3.0",
-        DB_NAME, TOKEN_TTL_MINS, ENFORCE_IP_BINDING, audio_status, CAPTCHA_MIN_SOLVE_MS,
+        "EasyCaptcha ready  |  DB: %s  |  TTL: %d min  |  IP binding: %s  |  audio: %s  |  "
+        "length: %d–%d  |  min_solve: %dms  |  v1.3.0",
+        DB_NAME, TOKEN_TTL_MINS, ENFORCE_IP_BINDING, audio_status,
+        CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX, CAPTCHA_MIN_SOLVE_MS,
     )
     yield
 
@@ -428,7 +438,9 @@ async def generate_captcha(request: Request):
             detail="Too many captcha requests. Please wait a moment and try again.",
         )
 
-    code     = "".join(secrets.choice(_CHARS) for _ in range(CAPTCHA_LENGTH))
+    # Pick a random length each request (cryptographically random when range > 0)
+    _length  = secrets.randbelow(CAPTCHA_LENGTH_MAX - CAPTCHA_LENGTH_MIN + 1) + CAPTCHA_LENGTH_MIN
+    code     = "".join(secrets.choice(_CHARS) for _ in range(_length))
     token_id = str(uuid.uuid4())
     expires  = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_TTL_MINS)
 
@@ -441,11 +453,11 @@ async def generate_captcha(request: Request):
         "expires_at": expires,
     })
 
-    logger.debug("Captcha generated  |  token: %s  |  ip: %s", token_id[:8], ip)
+    logger.debug("Captcha generated  |  token: %s  |  len: %d  |  ip: %s", token_id[:8], _length, ip)
     return CaptchaResponse(
         token_id        = token_id,
         image_b64       = _generate_captcha_image(code),
-        captcha_length  = CAPTCHA_LENGTH,
+        captcha_length  = _length,
         audio_available = _espeak_available(),
     )
 

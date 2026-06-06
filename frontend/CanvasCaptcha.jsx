@@ -52,13 +52,20 @@ const SpeakerIcon = ({ size = 12 }) => (
 );
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length = 5 }, ref) => {
-  const canvasRef  = useRef(null);
-  const captchaRef = useRef('');
-  const [input,    setInput]   = useState('');
-  const [error,    setError]   = useState('');
-  const [speaking, setSpeaking] = useState(false);
-  const [shaking,  setShaking]  = useState(false);
+const CanvasCaptcha = forwardRef(({
+  resetTrigger  = 0,
+  externalError = '',
+  length        = 5,     // Fixed length (backward compat)
+  minLength     = null,  // Set both minLength + maxLength to randomise per challenge
+  maxLength     = null,
+}, ref) => {
+  const canvasRef   = useRef(null);
+  const captchaRef  = useRef('');
+  const [input,       setInput]       = useState('');
+  const [error,       setError]       = useState('');
+  const [speaking,    setSpeaking]    = useState(false);
+  const [shaking,     setShaking]     = useState(false);
+  const [activeLength, setActiveLength] = useState(length); // tracks current challenge length
 
   // Detect Web Speech API support once
   const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -143,14 +150,20 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
     if (speechSupported) window.speechSynthesis.cancel();
     setSpeaking(false);
 
+    // Determine length for this challenge
+    const lo  = minLength ?? length;
+    const hi  = maxLength ?? length;
+    const len = lo === hi ? lo : lo + Math.floor(Math.random() * (hi - lo + 1));
+    setActiveLength(len);
+
     let text = '';
-    for (let i = 0; i < length; i++) {
+    for (let i = 0; i < len; i++) {
       text += CAPTCHA_CHARS[Math.floor(Math.random() * CAPTCHA_CHARS.length)];
     }
     captchaRef.current = text;
     draw(text);
     setInput('');
-  }, [draw, length, speechSupported]);
+  }, [draw, length, minLength, maxLength, speechSupported]);
 
   useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -292,8 +305,8 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
           setInput(e.target.value.replace(/[^A-Za-z0-9]/g, ''));
           if (error) setError('');
         }}
-        placeholder={`Type the ${length} characters above`}
-        maxLength={length}
+        placeholder={`Type the ${activeLength} characters above`}
+        maxLength={activeLength}
         autoComplete="off"
         spellCheck={false}
         aria-label="Captcha answer"
@@ -311,7 +324,7 @@ const CanvasCaptcha = forwardRef(({ resetTrigger = 0, externalError = '', length
 
       {/* Character progress dots */}
       <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', margin: '8px 0 2px' }}>
-        {Array.from({ length }).map((_, i) => (
+        {Array.from({ length: activeLength }).map((_, i) => (
           <span
             key={i}
             style={{

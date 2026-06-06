@@ -55,7 +55,8 @@ https://github.com/ajaykumarvarma/EasyCaptcha
 - [x] **Security:** Honeypot hidden field (`name="website"`) in `ServerCaptcha.jsx` and server captcha demo — checked client-side (silent block) and backend (early `bot_suspected` rejection before any DB hit)
 - [x] New `error_code: "bot_suspected"` in `VerifyResponse`
 - [x] `onReady` payload now includes `honeypot` field: `{ tokenId, answer, honeypot }`
-- [x] 44 tests pass (was 41)
+- [x] **Feature:** Per-request length randomisation — `CAPTCHA_LENGTH_MIN` / `CAPTCHA_LENGTH_MAX` env vars on backend; `minLength`/`maxLength` props on `CanvasCaptcha`; dynamic dots + maxLength in all demos; 47 tests pass
+- [x] **Docs:** Comprehensive HTTPS/TLS section in README — Caddy (automatic TLS), nginx + Certbot, Docker Compose nginx, forwarded-IP + IP-binding notes
 - [x] **MongoDB authentication in docker-compose:**
   - Root admin: `MONGO_ROOT_USERNAME`/`MONGO_ROOT_PASSWORD`
   - App user: `captcha_svc` (readWrite on easycaptcha db only) — least privilege

@@ -34,6 +34,8 @@ from captcha_service import (
     _verify_rate_store,
     _audio_rate_store,
     CAPTCHA_LENGTH,
+    CAPTCHA_LENGTH_MIN,
+    CAPTCHA_LENGTH_MAX,
     RATE_LIMIT_RPM,
     VERIFY_LIMIT_RPM,
     AUDIO_LIMIT_RPM,
@@ -404,3 +406,30 @@ class TestHoneypot:
         fields = VerifyRequest.model_fields
         assert "honeypot" in fields
         assert fields["honeypot"].default == ""
+
+
+# ── Length randomisation ──────────────────────────────────────────────────────
+
+class TestLengthRandomisation:
+
+    def test_length_min_max_are_valid(self):
+        from captcha_service import CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX
+        assert CAPTCHA_LENGTH_MIN >= 1
+        assert CAPTCHA_LENGTH_MAX >= CAPTCHA_LENGTH_MIN
+
+    def test_length_min_defaults_to_captcha_length(self):
+        from captcha_service import CAPTCHA_LENGTH, CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX
+        # When neither override is set the range should equal the fixed length
+        import os
+        if "CAPTCHA_LENGTH_MIN" not in os.environ and "CAPTCHA_LENGTH_MAX" not in os.environ:
+            assert CAPTCHA_LENGTH_MIN == CAPTCHA_LENGTH
+            assert CAPTCHA_LENGTH_MAX == CAPTCHA_LENGTH
+
+    def test_image_generated_for_various_lengths(self):
+        """Image generation must work for all lengths in the configured range."""
+        from captcha_service import _generate_captcha_image, _CHARS, CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX
+        import secrets
+        for length in range(CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX + 1):
+            code = ''.join(secrets.choice(_CHARS) for _ in range(length))
+            img_b64 = _generate_captcha_image(code)
+            assert len(img_b64) > 0, f"Empty image for length {length}"

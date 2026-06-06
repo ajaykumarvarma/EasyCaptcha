@@ -24,7 +24,8 @@ Two ready-to-use variants:
 - **Character progress dots** — filling dots below the input show how many characters have been typed (●●●○○ style). Available in all three frontends.
 - **Auto-validate** — canvas variant auto-submits 700 ms after the last character is typed.
 - **New error code** — `too_fast` in `VerifyResponse.error_code` when timing check fails.
-- **41 tests** (was 37), all passing.
+- **Per-request length randomisation** — `CAPTCHA_LENGTH_MIN=4` / `CAPTCHA_LENGTH_MAX=6` vary the challenge length on every request. Makes length-based pattern attacks impossible. `CanvasCaptcha` accepts `minLength`/`maxLength` props; the demo page uses `CANVAS_MIN_LEN` / `CANVAS_MAX_LEN` JS constants.
+- **HTTPS/TLS production guide** — new README section with Caddy (automatic TLS), nginx + Certbot, Docker Compose nginx, and forwarded-IP/IP-binding notes.
 
 ### v1.2.0 (MongoDB auth + IP binding + Audio CAPTCHA)
 - MongoDB authentication with dedicated least-privilege `captcha_svc` user.
@@ -260,7 +261,9 @@ All settings live in `backend/.env` (or as Docker environment variables).
 | `RATE_LIMIT_PER_MIN` | No | `15` | Max `GET /captcha` calls per IP per minute |
 | `VERIFY_LIMIT_PER_MIN` | No | `60` | Max `POST /captcha/verify` calls per IP per minute |
 | `AUDIO_LIMIT_PER_MIN` | No | `20` | Max `GET /captcha/audio/{id}` calls per IP per minute |
-| `CAPTCHA_LENGTH` | No | `5` | Number of characters per challenge |
+| `CAPTCHA_LENGTH` | No | `5` | Fixed length when min/max not set (kept for backward compat) |
+| `CAPTCHA_LENGTH_MIN` | No | `CAPTCHA_LENGTH` | Minimum challenge length for per-request randomisation |
+| `CAPTCHA_LENGTH_MAX` | No | `CAPTCHA_LENGTH` | Maximum challenge length for per-request randomisation |
 | `CAPTCHA_MIN_SOLVE_MS` | No | `1500` | Minimum ms between token creation and verify (0 = disabled) |
 | `ENFORCE_IP_BINDING` | No | `false` | Reject verify if `client_ip` doesn't match token origin IP |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
@@ -275,6 +278,8 @@ ALLOWED_ORIGINS=https://yourdomain.com
 TOKEN_TTL_MINUTES=5
 RATE_LIMIT_PER_MIN=15
 CAPTCHA_LENGTH=5
+CAPTCHA_LENGTH_MIN=4
+CAPTCHA_LENGTH_MAX=6
 CAPTCHA_MIN_SOLVE_MS=1500
 ENFORCE_IP_BINDING=false
 ```
@@ -283,6 +288,170 @@ ENFORCE_IP_BINDING=false
 > `captcha_length` as a field, so the `ServerCaptcha` React component adapts
 > automatically without any prop changes.  For `CanvasCaptcha` pass the
 > `length` prop (e.g. `<CanvasCaptcha length={6} />`).
+
+> `length` prop (e.g. `<CanvasCaptcha length={6} />`).
+
+---
+
+## HTTPS in production
+
+Running EasyCaptcha without TLS exposes the `X-API-Key` header and active token IDs in plain text — treat HTTPS as mandatory, not optional.
+
+Choose the proxy that fits your stack:
+
+---
+
+### Option A — Caddy (recommended; automatic TLS)
+
+Caddy obtains and renews Let's Encrypt certificates with **zero configuration**.
+
+**Install** (Debian/Ubuntu):
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install caddy
+```
+
+**`/etc/caddy/Caddyfile`:**
+
+```
+captcha.yourdomain.com {
+    # Automatic TLS via Let's Encrypt — no config needed
+
+    reverse_proxy localhost:8080 {
+        header_up X-Real-IP {remote_host}
+    }
+
+    # HSTS — force browsers to use HTTPS for 1 year
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+}
+```
+
+```bash
+sudo systemctl enable --now caddy
+sudo systemctl reload caddy
+```
+
+Done. Caddy handles certificate issuance and auto-renewal.
+
+---
+
+### Option B — nginx + Let's Encrypt (Certbot)
+
+**Install:**
+
+```bash
+sudo apt install -y nginx certbot python3-certbot-nginx
+```
+
+**Obtain a certificate:**
+
+```bash
+sudo certbot --nginx -d captcha.yourdomain.com
+```
+
+**`/etc/nginx/sites-available/easycaptcha`:**
+
+```nginx
+# Redirect HTTP → HTTPS
+server {
+    listen 80;
+    server_name captcha.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name captcha.yourdomain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/captcha.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/captcha.yourdomain.com/privkey.pem;
+
+    # Modern TLS only
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS — tell browsers to always use HTTPS
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Pass real client IP to EasyCaptcha (required for IP binding and rate limiting)
+    proxy_set_header  X-Real-IP        $remote_addr;
+    proxy_set_header  X-Forwarded-For  $proxy_add_x_forwarded_for;
+    proxy_set_header  X-Forwarded-Proto https;
+    proxy_set_header  Host             $host;
+
+    # Tighten upload body size (captcha images are small)
+    client_max_body_size 64k;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_read_timeout 30s;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/easycaptcha /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Auto-renewal is enabled by `certbot install` — verify with:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+---
+
+### Option C — Docker Compose with nginx
+
+Add a `nginx` service to your `docker-compose.yml` that handles TLS and proxies to the `captcha` service:
+
+```yaml
+services:
+  captcha:
+    build: ../backend
+    env_file: .env
+    expose:
+      - "8080"          # internal only — not published to the host
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - captcha
+```
+
+`nginx.conf` (same content as Option B, but `proxy_pass http://captcha:8080`).
+
+---
+
+### Forwarded IP and IP binding
+
+When EasyCaptcha is behind a proxy, the real client IP arrives in `X-Forwarded-For` or `X-Real-IP`. The service reads the first untrusted IP from `X-Forwarded-For` automatically.
+
+> If you enable `ENFORCE_IP_BINDING=true`, make sure your proxy always sets `X-Real-IP $remote_addr` (nginx) or `header_up X-Real-IP {remote_host}` (Caddy) so the token IP matches the verify IP.
+
+---
+
+### Environment variables to update for production
+
+```env
+# Lock CORS to your exact frontend origin — never use * in production
+ALLOWED_ORIGINS=https://yourdomain.com
+
+# Use HTTPS in your service URL when calling from the frontend
+# (nothing to set here — just make sure your API_BASE in the frontend points to https://)
+```
 
 ---
 

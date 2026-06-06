@@ -370,7 +370,6 @@
       letter-spacing: 8px;
       padding: 10px 14px;
       outline: none;
-      text-transform: uppercase;
       transition: border-color 0.15s;
       margin-bottom: 10px;
     }
@@ -736,7 +735,7 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Get a new code
           </button>
-          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" />
+          <input id="canvasInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type 5 characters (case-insensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('canvasStatus'); s.className='captcha-status'; s.innerHTML='';" />
           <div class="captcha-hint">Case-insensitive &middot; 5 characters &middot; Mixed case + digits &middot; No ambiguous chars (I/i/l/O/o/0/1)</div>
           <button class="captcha-submit" onclick="validateCanvas()">Validate</button>
           <div class="captcha-status" id="canvasStatus"></div>
@@ -811,7 +810,7 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh image
           </button>
-          <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" />
+          <input id="serverInput" class="captcha-input" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="Type characters (case-insensitive)" oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,''); var s=document.getElementById('serverStatus'); s.className='captcha-status'; s.innerHTML='';" />
           <div class="captcha-hint" id="serverHint">Enter backend URL above and click Load</div>
           <button class="captcha-submit" onclick="validateServer()" id="serverSubmit" disabled style="opacity:0.5;cursor:not-allowed">Validate</button>
           <div class="captcha-status" id="serverStatus"></div>
@@ -1017,7 +1016,8 @@ function refreshCanvas() {
   }
 
   document.getElementById('canvasInput').value = '';
-  document.getElementById('canvasStatus').className = 'captcha-status';
+  // Status is NOT cleared here — let it remain visible so the user sees the error.
+  // It clears automatically when the user starts typing (oninput handler above).
 }
 
 function validateCanvas() {
@@ -1038,7 +1038,7 @@ function validateCanvas() {
 let serverTokenId = null;
 let serverCaptchaLen = 5;
 
-async function loadServerCaptcha() {
+async function loadServerCaptcha(clearStatus = true) {
   const url    = (document.getElementById('backendUrl').value || '').trim().replace(/\/$/, '');
   const wrap   = document.getElementById('serverImgWrap');
   const img    = document.getElementById('serverImg');
@@ -1047,7 +1047,12 @@ async function loadServerCaptcha() {
   const submit = document.getElementById('serverSubmit');
   const status = document.getElementById('serverStatus');
 
-  status.className = 'captcha-status';
+  // Only reset the status when explicitly requested (e.g. user clicks Load).
+  // When called after a wrong answer we keep the error message visible.
+  if (clearStatus) {
+    status.className = 'captcha-status';
+    status.innerHTML = '';
+  }
   ph.style.display = 'flex';
   ph.innerHTML     = '<span>⏳</span><span>Loading from ' + url + '…</span>';
   img.style.display = 'none';
@@ -1105,7 +1110,7 @@ async function validateServer() {
     } else {
       status.className = 'captcha-status fail';
       status.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Incorrect code — token consumed. A new image has loaded. Please try again.';
-      loadServerCaptcha();
+      loadServerCaptcha(false);  // pass false = keep the error message visible
     }
   } catch {
     status.className = 'captcha-status fail';

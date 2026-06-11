@@ -1,7 +1,7 @@
 """
 EasyCaptcha — Self-Hosted Image Captcha Service
 ================================================
-Version : 1.4.0
+Version : 1.5.0
 License : MIT
 
 Endpoints
@@ -10,7 +10,16 @@ Endpoints
   GET  /captcha/audio/{token_id}  — Audio pronunciation (WCAG 2.1 accessibility)
   POST /captcha/verify            — Verify an answer (backend-to-backend, API key required)
   GET  /stats                     — Token statistics (API key required)
+  GET  /stats/detailed            — Rolling-window analytics with per-rejection-type breakdown
   GET  /health                    — Health check
+
+Changes in 1.5.0
+----------------
+  - Analytics endpoint: GET /stats/detailed?hours=N (default 24h, max 168h / 7 days).
+    Every verify call logs a lightweight event {"ts", "outcome"} to a captcha_events
+    collection with a configurable TTL (STATS_RETENTION_DAYS, default 7 days).
+    The endpoint aggregates counts per outcome type and returns solve rate, per-rejection
+    breakdown, and the top rejection reason. Requires X-API-Key.
 
 Changes in 1.4.0
 ----------------
@@ -49,7 +58,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -88,8 +97,11 @@ if CAPTCHA_LENGTH_MIN > CAPTCHA_LENGTH_MAX:
     raise RuntimeError(
         f"CAPTCHA_LENGTH_MIN ({CAPTCHA_LENGTH_MIN}) must be ≤ CAPTCHA_LENGTH_MAX ({CAPTCHA_LENGTH_MAX})"
     )
-ENFORCE_IP_BINDING = os.getenv("ENFORCE_IP_BINDING", "false").strip().lower() == "true"
+ENFORCE_IP_BINDING   = os.getenv("ENFORCE_IP_BINDING",   "false").strip().lower() == "true"
 CAPTCHA_MIN_SOLVE_MS = int(os.getenv("CAPTCHA_MIN_SOLVE_MS", "1500"))  # 0 = disabled
+# Analytics retention — captcha_events documents expire after this many days.
+# Increase for longer trend windows; decrease to save storage.
+STATS_RETENTION_DAYS = int(os.getenv("STATS_RETENTION_DAYS", "7"))
 LOG_LEVEL         = os.getenv("LOG_LEVEL", "INFO").upper()
 
 logging.basicConfig(
@@ -339,6 +351,24 @@ def _generate_audio_captcha(code: str) -> bytes:
             os.unlink(tmp_path)
 
 
+# ── Analytics event logging ───────────────────────────────────────────────────
+# A lightweight captcha_events document is written for every verify call outcome.
+# Events expire automatically via a MongoDB TTL index (STATS_RETENTION_DAYS).
+# This collection is queried by GET /stats/detailed for rolling-window analytics.
+
+
+async def _log_event(outcome: str) -> None:
+    """Insert a verification outcome into captcha_events (fire-and-forget)."""
+    try:
+        await db.captcha_events.insert_one({
+            "ts":      datetime.now(timezone.utc),
+            "outcome": outcome,
+        })
+    except Exception as exc:   # noqa: BLE001
+        # Analytics must never break the verify response
+        logger.debug("_log_event failed (non-critical): %s", exc)
+
+
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
 
@@ -347,14 +377,20 @@ async def lifespan(app: FastAPI):
     await db.captcha_tokens.create_index("token_id", unique=True)
     await db.captcha_tokens.create_index("expires_at", expireAfterSeconds=0)
 
+    # TTL index: auto-purge analytics events after STATS_RETENTION_DAYS
+    await db.captcha_events.create_index(
+        "ts", expireAfterSeconds=STATS_RETENTION_DAYS * 86400
+    )
+
     cleanup_task = asyncio.create_task(_rate_store_cleanup_loop())
 
     audio_status = "available" if _espeak_available() else "unavailable (install espeak-ng)"
     logger.info(
         "EasyCaptcha ready  |  DB: %s  |  TTL: %d min  |  IP binding: %s  |  audio: %s  |  "
-        "length: %d–%d  |  min_solve: %dms  |  fonts: %d  |  v1.4.0",
+        "length: %d–%d  |  min_solve: %dms  |  fonts: %d  |  stats_retention: %dd  |  v1.5.0",
         DB_NAME, TOKEN_TTL_MINS, ENFORCE_IP_BINDING, audio_status,
-        CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX, CAPTCHA_MIN_SOLVE_MS, len(_FONT_PATHS),
+        CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX, CAPTCHA_MIN_SOLVE_MS,
+        len(_FONT_PATHS), STATS_RETENTION_DAYS,
     )
     yield
 
@@ -368,7 +404,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title       = "EasyCaptcha",
     description = "Self-hosted, lightweight server-side image captcha service.",
-    version     = "1.4.0",
+    version     = "1.5.0",
     lifespan    = lifespan,
     docs_url    = "/docs",
     redoc_url   = "/redoc",
@@ -446,7 +482,7 @@ def _get_ip(request: Request) -> str:
 async def health():
     return HealthResponse(
         status          = "ok",
-        version         = "1.4.0",
+        version         = "1.5.0",
         service         = "EasyCaptcha",
         audio_available = _espeak_available(),
     )
@@ -617,6 +653,7 @@ async def verify_captcha(
         logger.warning(
             "Honeypot triggered — bot suspected  |  token: %s", payload.token_id[:8]
         )
+        asyncio.create_task(_log_event("bot_suspected"))
         return VerifyResponse(valid=False, error_code="bot_suspected")
 
     ip = _get_ip(request)
@@ -628,6 +665,7 @@ async def verify_captcha(
         {"_id": 0},
     )
     if not doc:
+        await _log_event("not_found")
         return VerifyResponse(valid=False, error_code="not_found")
 
     expires = doc.get("expires_at")
@@ -636,6 +674,7 @@ async def verify_captcha(
             expires = expires.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) > expires:
             await db.captcha_tokens.delete_one({"token_id": payload.token_id})
+            await _log_event("expired")
             return VerifyResponse(valid=False, error_code="expired")
 
     # ── IP binding check ──────────────────────────────────────────────
@@ -650,6 +689,7 @@ async def verify_captcha(
             await db.captcha_tokens.update_one(
                 {"token_id": payload.token_id}, {"$set": {"used": True}}
             )
+            await _log_event("ip_missing")
             return VerifyResponse(valid=False, error_code="ip_missing")
 
         if provided_ip != stored_ip:
@@ -660,6 +700,7 @@ async def verify_captcha(
             await db.captcha_tokens.update_one(
                 {"token_id": payload.token_id}, {"$set": {"used": True}}
             )
+            await _log_event("ip_mismatch")
             return VerifyResponse(valid=False, error_code="ip_mismatch")
 
     # ── Consume token (one attempt only) ─────────────────────────────
@@ -681,6 +722,7 @@ async def verify_captcha(
                     "Bot suspected — solve too fast  |  token: %s  |  %.0f ms < %d ms",
                     payload.token_id[:8], elapsed_ms, CAPTCHA_MIN_SOLVE_MS,
                 )
+                await _log_event("too_fast")
                 return VerifyResponse(valid=False, error_code="too_fast")
 
     # ── Answer check (HMAC hash comparison — constant-time, protects stored answers) ──
@@ -696,9 +738,11 @@ async def verify_captcha(
 
     if not answer_ok:
         logger.debug("Wrong answer  |  token: %s", payload.token_id[:8])
+        await _log_event("wrong_answer")
         return VerifyResponse(valid=False, error_code="wrong_answer")
 
     logger.debug("Verified OK   |  token: %s", payload.token_id[:8])
+    await _log_event("ok")
     return VerifyResponse(valid=True)
 
 
@@ -722,5 +766,87 @@ async def stats(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
         tokens_in_db    = total,
         active_unused   = unused,
         verified        = verified,
-        service_version = "1.4.0",
+        service_version = "1.5.0",
+    )
+
+
+# ── Detailed analytics endpoint ───────────────────────────────────────────────
+
+
+class DetailedStatsResponse(BaseModel):
+    window_hours:    int
+    total_attempts:  int
+    solved:          int
+    solve_rate:      float          # 0.0 – 1.0 rounded to 4 decimal places
+    rejections:      dict           # e.g. {"wrong_answer": 12, "too_fast": 5, ...}
+    top_rejection:   Optional[str]  # most common rejection reason, or null when none
+    retention_days:  int            # how long events are retained (STATS_RETENTION_DAYS)
+    service_version: str
+
+
+@app.get(
+    "/stats/detailed",
+    response_model = DetailedStatsResponse,
+    tags           = ["Meta"],
+    summary        = "Rolling-window analytics with per-rejection-type breakdown",
+)
+async def stats_detailed(
+    hours:     int            = Query(24,   ge=1, le=168,
+                                     description="Rolling window size in hours (1–168 / up to 7 days)."),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+):
+    """
+    Return verification outcome analytics for the last **N hours** (default 24).
+
+    Each verify call — successful or not — is logged to the `captcha_events`
+    collection with an `outcome` field.  Events are auto-purged after
+    `STATS_RETENTION_DAYS` (default 7).
+
+    **Outcome types**
+
+    | outcome | trigger |
+    |---------|---------|
+    | `ok` | Answer accepted |
+    | `wrong_answer` | Hash comparison failed |
+    | `too_fast` | Solved faster than `CAPTCHA_MIN_SOLVE_MS` |
+    | `bot_suspected` | Honeypot field was non-empty |
+    | `ip_missing` | `ENFORCE_IP_BINDING=true` but `client_ip` not provided |
+    | `ip_mismatch` | `ENFORCE_IP_BINDING=true` and IPs don't match |
+    | `expired` | Token TTL elapsed at verify time |
+    | `not_found` | Token ID unknown or already consumed |
+
+    Requires `X-API-Key` header.
+    """
+    if not x_api_key or not secrets.compare_digest(x_api_key, API_SECRET_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    # Aggregate all outcomes in the requested window
+    pipeline = [
+        {"$match":  {"ts": {"$gte": since}}},
+        {"$group":  {"_id": "$outcome", "count": {"$sum": 1}}},
+        {"$project": {"_id": 0, "outcome": "$_id", "count": 1}},
+    ]
+    rows = await db.captcha_events.aggregate(pipeline).to_list(length=50)
+    counts: dict = {row["outcome"]: row["count"] for row in rows}
+
+    total   = sum(counts.values())
+    solved  = counts.get("ok", 0)
+    solve_rate = round(solved / total, 4) if total > 0 else 0.0
+
+    rejections = {k: v for k, v in counts.items() if k != "ok"}
+    top_rejection: Optional[str] = (
+        max(rejections, key=lambda k: rejections[k]) if rejections else None
+    )
+
+    return DetailedStatsResponse(
+        window_hours    = hours,
+        total_attempts  = total,
+        solved          = solved,
+        solve_rate      = solve_rate,
+        rejections      = rejections,
+        top_rejection   = top_rejection,
+        retention_days  = STATS_RETENTION_DAYS,
+        service_version = "1.5.0",
     )

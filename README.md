@@ -16,6 +16,9 @@ Two ready-to-use variants:
 
 ## What's new
 
+### v1.5.0 (Rolling-window analytics endpoint)
+- **`GET /stats/detailed`** — every verify call now logs a lightweight `{ts, outcome}` event to a `captcha_events` collection (auto-purged after `STATS_RETENTION_DAYS`, default 7 days). The new endpoint returns solve rate, per-rejection-type counts, and the dominant rejection reason over any window from 1–168 hours. Requires `X-API-Key`.
+
 ### v1.4.0 (Security hardening — hashing, timing, fonts, colors, paste blocking)
 - **HMAC-SHA256 answer hashing** — CAPTCHA answers are stored as HMAC-SHA256 digests (keyed with `API_SECRET_KEY`) instead of plaintext. Verification compares hashes. A database dump without the application secret does not expose answers.
 - **Constant-time answer comparison** — `hmac.compare_digest()` replaces `==` for comparing hashes, eliminating timing-oracle side channels.
@@ -136,7 +139,8 @@ easycaptcha/
 │   ├── requirements-dev.txt — Test dependencies
 │   ├── .env.example         — Copy to .env and fill in values
 │   ├── Dockerfile           — Python + espeak-ng environment
-│   ├── test_captcha.py      — Automated tests (67 unit tests, 9 integration/audio skipped)
+│   ├── pytest.ini           — pytest-asyncio configuration
+│   ├── test_captcha.py      — Automated tests (79 unit tests, 9 integration/audio skipped)
 │   └── conftest.py          — pytest configuration
 ├── frontend/
 │   ├── ServerCaptcha.jsx    — React component (server-side variant, v1.3.0)
@@ -1345,7 +1349,7 @@ Requires the same `X-API-Key` header.
   "tokens_in_db":    42,
   "active_unused":   8,
   "verified":        34,
-  "service_version": "1.3.0"
+  "service_version": "1.5.0"
 }
 ```
 
@@ -1358,10 +1362,63 @@ number stays low in production.
 
 ---
 
+### `GET /stats/detailed` — Rolling-window analytics
+
+Returns per-rejection-type counts and solve rate for the last N hours.
+
+**Query parameters**
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `hours` | integer | `24` | 1–168 | Rolling window size in hours |
+
+Requires `X-API-Key` header.
+
+**Response — 200**
+
+```json
+{
+  "window_hours":   24,
+  "total_attempts": 312,
+  "solved":         218,
+  "solve_rate":     0.6987,
+  "rejections": {
+    "wrong_answer":  56,
+    "too_fast":      22,
+    "bot_suspected":  9,
+    "not_found":      7
+  },
+  "top_rejection":  "wrong_answer",
+  "retention_days": 7,
+  "service_version": "1.5.0"
+}
+```
+
+**Outcome types logged**
+
+| outcome | Meaning |
+|---------|---------|
+| `ok` | Answer accepted |
+| `wrong_answer` | HMAC hash comparison failed |
+| `too_fast` | Solved faster than `CAPTCHA_MIN_SOLVE_MS` |
+| `bot_suspected` | Honeypot field was non-empty |
+| `ip_missing` | `ENFORCE_IP_BINDING=true` but `client_ip` not provided |
+| `ip_mismatch` | `ENFORCE_IP_BINDING=true` and IPs don't match |
+| `expired` | Token TTL elapsed at verify time |
+| `not_found` | Token ID unknown or already consumed |
+
+Events are stored in a `captcha_events` collection with a TTL index. The retention
+window defaults to 7 days; override with `STATS_RETENTION_DAYS=N`.
+
+**Error — 422** `hours` is outside the 1–168 range.
+**Error — 401** Missing or wrong `X-API-Key`.
+
+---
+
 ### `GET /health` — Health check
 
 ```json
-{ "status": "ok", "version": "1.3.0", "service": "EasyCaptcha", "audio_available": true }
+{ "status": "ok", "version": "1.5.0", "service": "EasyCaptcha", "audio_available": true }
 ```
 
 No authentication needed.  Use for load balancer health probes and uptime monitoring.
@@ -1381,7 +1438,7 @@ pip install -r requirements.txt
 # Install test-only extras (not in requirements.txt)
 pip install -r requirements-dev.txt
 
-# Run all unit tests (67 tests, ~1.0 s)
+# Run all unit tests (79 tests, ~1.0 s)
 MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=test \
   pytest test_captcha.py -v
 ```
@@ -1390,7 +1447,7 @@ Expected output:
 
 ```
 ...
-67 passed, 9 skipped
+79 passed, 9 skipped
 ```
 
 Skipped tests require either:

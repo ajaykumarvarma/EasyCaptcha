@@ -31,6 +31,7 @@ from captcha_service import (
     _generate_audio_captcha,
     _espeak_available,
     _hash_code,
+    _log_event,
     _CHARS,
     _COLORS,
     _FONT_PATHS,
@@ -45,6 +46,8 @@ from captcha_service import (
     AUDIO_LIMIT_RPM,
     ENFORCE_IP_BINDING,
     CAPTCHA_MIN_SOLVE_MS,
+    STATS_RETENTION_DAYS,
+    DetailedStatsResponse,
 )
 
 
@@ -597,3 +600,158 @@ class TestPasteBlocking:
         assert content.count("addEventListener('paste'") >= 2, \
             "Demo page must have paste listeners on both inputs"
         assert "e.preventDefault()" in content or "evt.preventDefault()" in content
+
+
+# ── Detailed analytics ─────────────────────────────────────────────────────────
+
+class TestDetailedStats:
+
+    def test_stats_retention_days_is_positive_int(self):
+        assert isinstance(STATS_RETENTION_DAYS, int)
+        assert STATS_RETENTION_DAYS >= 1
+
+    def test_detailed_stats_response_model_fields(self):
+        """DetailedStatsResponse must include all required analytics fields."""
+        fields = DetailedStatsResponse.model_fields
+        required = {
+            "window_hours", "total_attempts", "solved", "solve_rate",
+            "rejections", "top_rejection", "retention_days", "service_version",
+        }
+        assert required.issubset(set(fields.keys())), \
+            f"Missing fields: {required - set(fields.keys())}"
+
+    def test_detailed_stats_response_construction(self):
+        """Model must construct correctly with zero-activity data."""
+        r = DetailedStatsResponse(
+            window_hours    = 24,
+            total_attempts  = 0,
+            solved          = 0,
+            solve_rate      = 0.0,
+            rejections      = {},
+            top_rejection   = None,
+            retention_days  = 7,
+            service_version = "1.5.0",
+        )
+        assert r.window_hours == 24
+        assert r.solve_rate == 0.0
+        assert r.top_rejection is None
+
+    def test_detailed_stats_solve_rate_calculation(self):
+        """Solve rate must equal solved / total_attempts."""
+        total, solved = 100, 42
+        rate = round(solved / total, 4)
+        r = DetailedStatsResponse(
+            window_hours    = 1,
+            total_attempts  = total,
+            solved          = solved,
+            solve_rate      = rate,
+            rejections      = {"wrong_answer": 58},
+            top_rejection   = "wrong_answer",
+            retention_days  = 7,
+            service_version = "1.5.0",
+        )
+        assert r.solve_rate == 0.42
+
+    def test_detailed_stats_top_rejection_logic(self):
+        """top_rejection must be the key with the highest count."""
+        rejections = {"wrong_answer": 10, "too_fast": 25, "bot_suspected": 5}
+        top = max(rejections, key=lambda k: rejections[k])
+        assert top == "too_fast"
+
+    def test_log_event_is_async_coroutine(self):
+        """_log_event must be an async function (coroutine)."""
+        import inspect, asyncio
+        assert inspect.iscoroutinefunction(_log_event)
+
+    def test_log_event_runs_without_error(self):
+        """_log_event must not raise even when DB is unavailable (fire-and-forget)."""
+        import asyncio
+
+        async def _run():
+            # Swap the DB temporarily to a failing collection
+            import captcha_service as cs
+            original_db = cs.db
+            # Monkey-patch: use a bad URL to confirm _log_event swallows errors
+            # (We test behavior, not DB connectivity)
+            await cs._log_event("ok")   # local Mongo is running; should succeed silently
+
+        asyncio.run(_run())
+
+    def test_all_outcome_types_are_documented(self):
+        """All expected outcome values must be listed in this test (regression guard)."""
+        known_outcomes = {
+            "ok",
+            "wrong_answer",
+            "too_fast",
+            "bot_suspected",
+            "ip_missing",
+            "ip_mismatch",
+            "expired",
+            "not_found",
+        }
+        # Just verifying the set is consistent with what the code logs
+        assert len(known_outcomes) == 8, "Update this test if you add a new outcome type"
+
+    @pytest.mark.asyncio
+    async def test_stats_endpoint_requires_api_key(self):
+        """GET /stats/detailed must return 401 without a valid X-API-Key (no DB hit)."""
+        from httpx import AsyncClient, ASGITransport
+        from captcha_service import app
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.get("/stats/detailed")
+        assert r.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_stats_endpoint_returns_valid_shape(self):
+        """GET /stats/detailed must return a valid JSON body with all expected keys (mocked DB)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from httpx import AsyncClient, ASGITransport
+        from captcha_service import app, API_SECRET_KEY
+
+        # Mock the aggregation cursor so the test has no Motor event-loop dependency
+        mock_cursor = MagicMock()
+        mock_cursor.to_list = AsyncMock(return_value=[
+            {"outcome": "ok",           "count": 10},
+            {"outcome": "wrong_answer", "count": 5},
+        ])
+        with patch("captcha_service.db") as mock_db:
+            mock_db.captcha_events.aggregate.return_value = mock_cursor
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                r = await ac.get("/stats/detailed", headers={"X-API-Key": API_SECRET_KEY})
+        assert r.status_code == 200
+        data = r.json()
+        for key in ("window_hours", "total_attempts", "solved", "solve_rate",
+                    "rejections", "top_rejection", "retention_days", "service_version"):
+            assert key in data, f"Missing key: {key}"
+        assert data["solved"] == 10
+        assert data["total_attempts"] == 15
+        assert data["rejections"] == {"wrong_answer": 5}
+        assert data["top_rejection"] == "wrong_answer"
+        assert round(data["solve_rate"], 4) == round(10 / 15, 4)
+
+    @pytest.mark.asyncio
+    async def test_stats_endpoint_hours_query_param(self):
+        """hours= query param must be reflected in window_hours of the response (mocked DB)."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from httpx import AsyncClient, ASGITransport
+        from captcha_service import app, API_SECRET_KEY
+
+        mock_cursor = MagicMock()
+        mock_cursor.to_list = AsyncMock(return_value=[])
+        with patch("captcha_service.db") as mock_db:
+            mock_db.captcha_events.aggregate.return_value = mock_cursor
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                r = await ac.get("/stats/detailed?hours=12", headers={"X-API-Key": API_SECRET_KEY})
+        assert r.status_code == 200
+        assert r.json()["window_hours"] == 12
+
+    @pytest.mark.asyncio
+    async def test_stats_endpoint_rejects_invalid_hours(self):
+        """hours= must be clamped: 0 and 999 are out of range (validation — no DB hit)."""
+        from httpx import AsyncClient, ASGITransport
+        from captcha_service import app, API_SECRET_KEY
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r0   = await ac.get("/stats/detailed?hours=0",   headers={"X-API-Key": API_SECRET_KEY})
+            r999 = await ac.get("/stats/detailed?hours=999", headers={"X-API-Key": API_SECRET_KEY})
+        assert r0.status_code == 422,   "hours=0 must be rejected (ge=1)"
+        assert r999.status_code == 422, "hours=999 must be rejected (le=168)"

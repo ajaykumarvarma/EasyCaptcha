@@ -108,17 +108,35 @@ https://github.com/ajaykumarvarma/EasyCaptcha
 
 ---
 
+## v1.5.0 — Analytics endpoint (2025)
+- [x] `GET /stats/detailed?hours=N` — rolling-window analytics with per-rejection-type breakdown
+- [x] `_log_event(outcome)` coroutine logs every verify outcome to `captcha_events` collection
+- [x] MongoDB TTL index auto-purges events after `STATS_RETENTION_DAYS` (default 7 days)
+- [x] `DetailedStatsResponse`: `window_hours`, `total_attempts`, `solved`, `solve_rate`, `rejections`, `top_rejection`, `retention_days`, `service_version`
+- [x] `hours` query param: 1–168 (validated); `bot_suspected` uses `asyncio.create_task()` (fire-and-forget)
+- [x] Tests: **79 passed, 9 skipped** (`TestDetailedStats` — 12 new tests with mocked ASGI endpoint tests)
+- [x] README: `GET /stats/detailed` API reference with full response example and outcome types table
+- [x] `.env.example`: `STATS_RETENTION_DAYS=7` documented
+- [x] `pytest.ini` added with `asyncio_mode = auto`
+
+## Test Results (v1.5.0)
+```
+79 passed, 9 skipped
+```
+
+---
+
 ## Prioritized Backlog
 
 ### P1 (Important)
-- Redis-backed rate limiter (current in-memory resets on restart, not shared across instances)
+- Redis-backed rate limiter (in-memory store resets on restart, not shared across instances)
 
 ### P2 (Nice to have)
-- Math captcha variant ("What is 4 + 7?")
+- Math CAPTCHA variant ("What is 4 + 7?")
 - Animated loading skeleton in React components
-- Cypress/Playwright end-to-end tests against the demo page
-- Mouse/keyboard interaction scoring (behavioral analytics for bot detection)
+- Cypress/Playwright E2E tests against the demo page
+- Behavioral analytics: keystroke timing + mouse interaction scoring
 
 ### P3 (Future)
-- Admin dashboard for CAPTCHA analytics (solve rates, bot rejection stats)
+- Admin dashboard UI wrapping `GET /stats/detailed` (visualize solve rates and rejection charts)
 - Multi-instance Docker Swarm / Kubernetes deployment notes

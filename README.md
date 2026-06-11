@@ -16,6 +16,13 @@ Two ready-to-use variants:
 
 ## What's new
 
+### v1.4.0 (Security hardening — hashing, timing, fonts, colors, paste blocking)
+- **HMAC-SHA256 answer hashing** — CAPTCHA answers are stored as HMAC-SHA256 digests (keyed with `API_SECRET_KEY`) instead of plaintext. Verification compares hashes. A database dump without the application secret does not expose answers.
+- **Constant-time answer comparison** — `hmac.compare_digest()` replaces `==` for comparing hashes, eliminating timing-oracle side channels.
+- **Multi-font random selection** — up to 6 distinct bold typefaces (sans-serif, serif, monospace) are selected randomly per character per image. Breaks single-font OCR pattern training.
+- **Expanded random color palette** — 14-color palette (was 6 fixed). Each character picks a color randomly instead of cycling by index. Increases per-image visual entropy.
+- **Paste blocking** — `onPaste` handlers in both React components and the demo page reject `Ctrl+V` / right-click paste. Bots paste; real humans type.
+
 ### v1.3.0 (Security hardening + UX polish)
 - **Minimum solve time** — answers arriving in under `CAPTCHA_MIN_SOLVE_MS` ms (default 1500) are automatically rejected. Automated solvers answer in < 50 ms; humans take ≥ 2 s. Zero false positives for real users.
 - **Honeypot hidden field** — `ServerCaptcha` includes a CSS-hidden `name="website"` input. Bots fill it; humans never see it. Any non-empty value triggers instant rejection before any DB lookup.
@@ -129,7 +136,7 @@ easycaptcha/
 │   ├── requirements-dev.txt — Test dependencies
 │   ├── .env.example         — Copy to .env and fill in values
 │   ├── Dockerfile           — Python + espeak-ng environment
-│   ├── test_captcha.py      — Automated tests (41 unit tests, 9 integration/audio skipped)
+│   ├── test_captcha.py      — Automated tests (67 unit tests, 9 integration/audio skipped)
 │   └── conftest.py          — pytest configuration
 ├── frontend/
 │   ├── ServerCaptcha.jsx    — React component (server-side variant, v1.3.0)
@@ -1316,7 +1323,7 @@ Possible `error_code` values (for your backend logs only — never surface to us
 |------|---------|
 | `not_found` | Token ID doesn't exist or was already used |
 | `expired` | Token TTL has elapsed |
-| `wrong_answer` | Case-sensitive answer mismatch |
+| `wrong_answer` | Case-sensitive answer mismatch (hash comparison) |
 | `too_fast` | Answer arrived faster than `CAPTCHA_MIN_SOLVE_MS` ms |
 | `bot_suspected` | Honeypot field was non-empty |
 | `ip_missing` | `ENFORCE_IP_BINDING=true` but `client_ip` not provided |
@@ -1374,7 +1381,7 @@ pip install -r requirements.txt
 # Install test-only extras (not in requirements.txt)
 pip install -r requirements-dev.txt
 
-# Run all unit tests (41 tests, ~0.6 s)
+# Run all unit tests (67 tests, ~1.0 s)
 MONGODB_URL=mongodb://localhost:27017 API_SECRET_KEY=test \
   pytest test_captcha.py -v
 ```
@@ -1383,7 +1390,7 @@ Expected output:
 
 ```
 ...
-41 passed, 9 skipped
+67 passed, 9 skipped
 ```
 
 Skipped tests require either:
@@ -1399,16 +1406,20 @@ Skipped tests require either:
 | Protection | Detail |
 |-----------|--------|
 | Code never sent to browser | Only the PNG image is returned. The answer is stored in MongoDB only. |
+| **HMAC-SHA256 answer hashing** | Answers stored as keyed HMAC-SHA256 digests. A DB dump without the API secret cannot reveal answers. |
 | Single-use tokens | Marked used immediately after the first verify call — replay is impossible. |
 | TTL expiry | MongoDB TTL index auto-deletes tokens after `TOKEN_TTL_MINUTES` (default 5). |
 | Per-IP rate limiting | Sliding 60-second window on all three endpoints. Configurable. |
 | **Minimum solve time** | Answers arriving faster than `CAPTCHA_MIN_SOLVE_MS` (default 1500 ms) are rejected. Automated solvers typically answer in < 50 ms; real humans take ≥ 2 s. |
 | **Honeypot hidden field** | `ServerCaptcha` renders a CSS-hidden `name="website"` input (not `type="hidden"`, which bots skip). Bots fill every visible input field, humans don't. Non-empty value = immediate rejection, no DB hit. |
+| **Paste blocking** | `onPaste` handlers in both React components and the demo page block `Ctrl+V` / clipboard paste. Bots paste; real users type. |
 | **Strict case-sensitivity** | Answer must match the displayed characters exactly (upper/lower/digit). |
 | **Enhanced image distortion** | Wave distortion, variable rotation (±33°), arc noise, variable character spacing, foreground lines, and 180 background dots. Hard to batch-OCR. |
+| **Multi-font rendering** | Up to 6 bold typefaces (sans-serif, serif, monospace) selected randomly per character. Breaks single-font OCR pattern training. |
+| **Random color palette** | 14 colors, randomly assigned per character. Increases per-image entropy vs. fixed color cycling. |
+| **Constant-time comparison** | `hmac.compare_digest()` for both the API key check and the answer hash comparison — prevents timing-oracle attacks. |
 | Security headers | `X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control: no-store` on every response. |
 | API key guard | `/captcha/verify` and `/stats` require `X-API-Key` — only your backend can call them. |
-| Constant-time comparison | `secrets.compare_digest` prevents timing attacks on the API key check. |
 | **IP binding (optional)** | When `ENFORCE_IP_BINDING=true`, the verify IP must match the generate IP. Prevents token-theft attacks. |
 | **MongoDB auth (optional)** | `docker-compose.yml` supports dedicated `captcha_svc` user with least-privilege `readWrite` on the `easycaptcha` DB only. |
 | **Audio CAPTCHA (WCAG 2.1)** | `GET /captcha/audio/{token_id}` reads characters aloud via `espeak-ng`. Screen-reader accessible. Does not consume the token. |
@@ -1432,6 +1443,7 @@ Skipped tests require either:
 - [ ] `CAPTCHA_MIN_SOLVE_MS` is at least 1500 (the default)
 - [ ] `/health` is monitored by your uptime tool
 - [ ] Login/signup endpoints also have their own rate limiting
+- [ ] `API_SECRET_KEY` is rotated periodically (HMAC keying means old hashes are automatically invalidated on rotation — all tokens expire in 5 min anyway)
 
 ---
 

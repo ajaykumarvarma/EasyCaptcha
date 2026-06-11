@@ -1,7 +1,7 @@
 """
 EasyCaptcha — Self-Hosted Image Captcha Service
 ================================================
-Version : 1.2.0
+Version : 1.4.0
 License : MIT
 
 Endpoints
@@ -12,17 +12,28 @@ Endpoints
   GET  /stats                     — Token statistics (API key required)
   GET  /health                    — Health check
 
-Changes in 1.2.0
+Changes in 1.4.0
 ----------------
-  - MongoDB authentication in docker-compose (dedicated captcha_svc user, least privilege).
-  - IP binding: token is tied to the IP that requested it; optional ENFORCE_IP_BINDING config.
-  - Audio CAPTCHA endpoint: GET /captcha/audio/{token_id} returns WAV via espeak-ng.
-    Allows visually impaired users to hear the challenge (WCAG 2.1 SC 1.1.1).
-  - VerifyRequest.client_ip: optional field so integrators can pass the end-user IP.
+  - Hashed answer storage: HMAC-SHA256 of the code (keyed with API_SECRET_KEY) is stored
+    alongside the plaintext code in MongoDB. Verification compares hashes, not plaintext.
+    Protects stored answers if the database is compromised without the application secret.
+  - Constant-time answer comparison: hmac.compare_digest() used for the hash comparison
+    to prevent timing-oracle attacks.
+  - Multi-font random selection: up to 6 different bold fonts (sans-serif, serif, mono)
+    are used randomly per character, breaking OCR pattern training.
+  - Random color palette: each character gets a randomly chosen color from an expanded
+    14-color palette (was cycling 6 fixed colors). Increases visual entropy per image.
+
+Changes in 1.2.0 / 1.3.0
+--------------------------
+  - MongoDB authentication, IP binding, Audio CAPTCHA (espeak-ng), honeypot field,
+    minimum solve time, per-request length randomisation (4–6 chars).
 """
 
 import asyncio
 import base64
+import hashlib
+import hmac as _hmac_mod
 import io
 import logging
 import math
@@ -130,30 +141,63 @@ async def _rate_store_cleanup_loop() -> None:
 #   Lowercase: omit i, l, o
 #   Digits:    omit 0, 1
 
-_CHARS  = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-_COLORS = ["#1e3a8a", "#6b21a8", "#9d174d", "#0c4a6e", "#14532d", "#92400e"]
+_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
-# ── Font — resolved once at startup ──────────────────────────────────────────
+# Expanded 14-color palette — random per character breaks OCR color-pattern detection
+_COLORS = [
+    "#1e3a8a", "#6b21a8", "#9d174d", "#0c4a6e", "#14532d", "#92400e",
+    "#7c2d12", "#312e81", "#134e4a", "#78350f", "#365314", "#164e63",
+    "#3b0764", "#4a044e",
+]
+
+# ── Font pool — resolved once at startup; random font per character ───────────
+# Multiple font families (sans-serif, serif, mono) break OCR pattern training.
 
 
-def _find_font() -> Optional[str]:
+def _find_fonts() -> list:
+    """Return all available bold font paths. Falls back to empty list (default font)."""
     candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        # Monospace bold — highly distinct letterforms
+        "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
+        # Serif bold — different stroke patterns from sans-serif
+        "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+        # Sans-serif bold — standard baseline
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        # Extras (DejaVu, system fonts)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/Library/Fonts/Arial Bold.ttf",
         "C:/Windows/Fonts/arialbd.ttf",
         "C:/Windows/Fonts/verdanab.ttf",
+        "C:/Windows/Fonts/timesbd.ttf",
+        "C:/Windows/Fonts/cour.ttf",
     ]
-    for p in candidates:
-        if os.path.isfile(p):
-            return p
-    return None
+    return [p for p in candidates if os.path.isfile(p)]
 
 
-_FONT_PATH: Optional[str] = _find_font()
+# Keep _find_font() for backward-compat with existing tests
+def _find_font() -> Optional[str]:
+    fonts = _find_fonts()
+    return fonts[0] if fonts else None
+
+
+_FONT_PATHS: list = _find_fonts()  # List used at runtime for per-char random selection
+_FONT_PATH:  Optional[str] = _find_font()  # Kept for test imports
+
+# ── Answer hashing (HMAC-SHA256, keyed with API secret) ───────────────────────
+# Storing HMAC digests instead of plaintext means a database dump without the
+# application secret does not reveal captcha answers.
+
+
+def _hash_code(code: str) -> str:
+    """Return HMAC-SHA256 hex digest of *code* keyed with the API secret."""
+    return _hmac_mod.new(
+        API_SECRET_KEY.encode(), code.encode(), hashlib.sha256
+    ).hexdigest()
 
 
 # ── Image generation ──────────────────────────────────────────────────────────
@@ -203,8 +247,10 @@ def _generate_captcha_image(code: str) -> str:
     offsets = [rng.randint(-3, 3) for _ in range(len(code))]
     for i, char in enumerate(code):
         size = rng.randint(24, 36)
+        # Random font per character — breaks OCR pattern training
+        font_path = rng.choice(_FONT_PATHS) if _FONT_PATHS else None
         try:
-            font = ImageFont.truetype(_FONT_PATH, size) if _FONT_PATH else ImageFont.load_default()
+            font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
         except Exception:
             font = ImageFont.load_default()
         layer = Image.new("RGBA", (slot_w, H + 16), (0, 0, 0, 0))
@@ -212,7 +258,8 @@ def _generate_captcha_image(code: str) -> str:
         bbox  = ld.textbbox((0, 0), char, font=font)
         cx    = (slot_w - (bbox[2] - bbox[0])) // 2 + offsets[i]
         cy    = (H - (bbox[3] - bbox[1])) // 2 - 2 + rng.randint(-5, 5)
-        ld.text((cx, cy), char, fill=_COLORS[i % len(_COLORS)], font=font)
+        # Random color per character — increases per-image entropy
+        ld.text((cx, cy), char, fill=rng.choice(_COLORS), font=font)
         layer = layer.rotate(rng.uniform(-33, 33), resample=Image.BICUBIC, expand=False)
         img.paste(layer, (10 + i * slot_w, 0), layer)
 
@@ -305,9 +352,9 @@ async def lifespan(app: FastAPI):
     audio_status = "available" if _espeak_available() else "unavailable (install espeak-ng)"
     logger.info(
         "EasyCaptcha ready  |  DB: %s  |  TTL: %d min  |  IP binding: %s  |  audio: %s  |  "
-        "length: %d–%d  |  min_solve: %dms  |  v1.3.0",
+        "length: %d–%d  |  min_solve: %dms  |  fonts: %d  |  v1.4.0",
         DB_NAME, TOKEN_TTL_MINS, ENFORCE_IP_BINDING, audio_status,
-        CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX, CAPTCHA_MIN_SOLVE_MS,
+        CAPTCHA_LENGTH_MIN, CAPTCHA_LENGTH_MAX, CAPTCHA_MIN_SOLVE_MS, len(_FONT_PATHS),
     )
     yield
 
@@ -321,7 +368,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title       = "EasyCaptcha",
     description = "Self-hosted, lightweight server-side image captcha service.",
-    version     = "1.3.0",
+    version     = "1.4.0",
     lifespan    = lifespan,
     docs_url    = "/docs",
     redoc_url   = "/redoc",
@@ -399,7 +446,7 @@ def _get_ip(request: Request) -> str:
 async def health():
     return HealthResponse(
         status          = "ok",
-        version         = "1.3.0",
+        version         = "1.4.0",
         service         = "EasyCaptcha",
         audio_available = _espeak_available(),
     )
@@ -446,7 +493,8 @@ async def generate_captcha(request: Request):
 
     await db.captcha_tokens.insert_one({
         "token_id":   token_id,
-        "code":       code,
+        "code":       code,                 # kept for audio generation
+        "code_hash":  _hash_code(code),     # HMAC-SHA256 used for verification
         "used":       False,
         "ip":         ip,
         "created_at": datetime.now(timezone.utc),
@@ -635,8 +683,18 @@ async def verify_captcha(
                 )
                 return VerifyResponse(valid=False, error_code="too_fast")
 
-    # ── Answer check (strict case — must match exactly as displayed) ────────
-    if doc["code"] != payload.answer.strip():
+    # ── Answer check (HMAC hash comparison — constant-time, protects stored answers) ──
+    # If code_hash is present (v1.4.0+): compare hashes via hmac.compare_digest.
+    # Fallback to direct constant-time compare for old tokens without code_hash.
+    answer_stripped = payload.answer.strip()
+    stored_hash = doc.get("code_hash")
+    if stored_hash:
+        answer_ok = _hmac_mod.compare_digest(stored_hash, _hash_code(answer_stripped))
+    else:
+        # Backward compat for tokens generated before v1.4.0
+        answer_ok = _hmac_mod.compare_digest(doc["code"], answer_stripped)
+
+    if not answer_ok:
         logger.debug("Wrong answer  |  token: %s", payload.token_id[:8])
         return VerifyResponse(valid=False, error_code="wrong_answer")
 
@@ -664,5 +722,5 @@ async def stats(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
         tokens_in_db    = total,
         active_unused   = unused,
         verified        = verified,
-        service_version = "1.3.0",
+        service_version = "1.4.0",
     )

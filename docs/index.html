@@ -701,7 +701,7 @@
         </svg>
       </div>
       <span class="logo-name">Easy<span>Captcha</span></span>
-      <span class="badge">v1.3.0</span>
+      <span class="badge">v1.4.0</span>
     </a>
     <div class="header-links">
       <a href="https://github.com/ajaykumarvarma/EasyCaptcha" class="btn-ghost" target="_blank" rel="noopener">
@@ -1264,6 +1264,10 @@ function copyCode(btn, id) {
 }
 
 /* ── Input event listeners (filtering + dots + auto-validate) ────────────── */
+/* ── Paste blocking — bots paste; real users type ────────────────────────── */
+document.getElementById('canvasInput').addEventListener('paste', e => e.preventDefault());
+document.getElementById('serverInput').addEventListener('paste', e => e.preventDefault());
+
 let canvasAutoTimer;
 document.getElementById('canvasInput').addEventListener('input', function () {
   this.value = this.value.replace(/[^A-Za-z0-9]/g, '');

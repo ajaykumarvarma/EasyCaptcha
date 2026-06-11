@@ -355,6 +355,7 @@ const ServerCaptcha = ({
         type="text"
         value={input}
         onChange={(e) => handleChange(e.target.value)}
+        onPaste={(e) => e.preventDefault()}
         placeholder={`Type the ${captchaLength} characters shown above`}
         maxLength={captchaLength}
         autoComplete="off"

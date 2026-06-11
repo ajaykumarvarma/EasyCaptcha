@@ -26,10 +26,14 @@ os.environ.setdefault("API_SECRET_KEY", "test-secret-key-for-tests")
 from captcha_service import (
     _check_rate_limit,
     _find_font,
+    _find_fonts,
     _generate_captcha_image,
     _generate_audio_captcha,
     _espeak_available,
+    _hash_code,
     _CHARS,
+    _COLORS,
+    _FONT_PATHS,
     _rate_store,
     _verify_rate_store,
     _audio_rate_store,
@@ -433,3 +437,163 @@ class TestLengthRandomisation:
             code = ''.join(secrets.choice(_CHARS) for _ in range(length))
             img_b64 = _generate_captcha_image(code)
             assert len(img_b64) > 0, f"Empty image for length {length}"
+
+
+# ── Answer hashing (HMAC-SHA256) ──────────────────────────────────────────────
+
+class TestAnswerHashing:
+
+    def test_hash_code_returns_hex_string(self):
+        digest = _hash_code("Ab3Kz")
+        assert isinstance(digest, str)
+        assert len(digest) == 64, "SHA-256 hex digest must be 64 characters"
+
+    def test_hash_code_is_consistent(self):
+        """Same input with same key must always produce the same digest."""
+        assert _hash_code("Hello") == _hash_code("Hello")
+
+    def test_different_codes_produce_different_hashes(self):
+        assert _hash_code("AAAAA") != _hash_code("BBBBB")
+
+    def test_hash_is_case_sensitive(self):
+        """Case changes must produce different hashes — preserves case sensitivity."""
+        assert _hash_code("aBcDe") != _hash_code("AbCdE")
+
+    def test_hash_uses_api_key(self):
+        """Hashes must differ when the API key changes (HMAC keying)."""
+        import hmac as _hmac_mod_t
+        import hashlib, os, importlib
+        old_key = os.environ.get("API_SECRET_KEY")
+        os.environ["API_SECRET_KEY"] = "different-test-key"
+        try:
+            import captcha_service as cs
+            importlib.reload(cs)
+            hash_with_new_key = cs._hash_code("TestCode")
+        finally:
+            if old_key is not None:
+                os.environ["API_SECRET_KEY"] = old_key
+            importlib.reload(cs)
+        hash_with_old_key = _hash_code("TestCode")
+        assert hash_with_new_key != hash_with_old_key, \
+            "Different API keys must produce different HMAC hashes"
+
+    def test_hash_code_is_hex_only(self):
+        import re
+        assert re.fullmatch(r"[0-9a-f]{64}", _hash_code("x"))
+
+    def test_compare_digest_works_with_hash(self):
+        """Verify that hmac.compare_digest accepts two equal hashes correctly."""
+        import hmac
+        h = _hash_code("SomeCode")
+        assert hmac.compare_digest(h, _hash_code("SomeCode"))
+        assert not hmac.compare_digest(h, _hash_code("WrongCode"))
+
+
+# ── Multi-font random selection ───────────────────────────────────────────────
+
+class TestMultiFontSelection:
+
+    def test_find_fonts_returns_list(self):
+        result = _find_fonts()
+        assert isinstance(result, list)
+
+    def test_font_paths_exist_if_found(self):
+        for path in _find_fonts():
+            assert os.path.isfile(path), f"Font file not found: {path}"
+
+    def test_find_font_backward_compat(self):
+        """_find_font() must still return a string or None for existing test imports."""
+        result = _find_font()
+        assert result is None or isinstance(result, str)
+
+    def test_font_paths_matches_find_fonts(self):
+        """_FONT_PATHS module-level list must equal _find_fonts() result."""
+        assert _FONT_PATHS == _find_fonts()
+
+    def test_image_generated_with_multiple_fonts_available(self):
+        """Image generation must succeed when multiple fonts are available."""
+        if len(_FONT_PATHS) < 2:
+            pytest.skip("Need 2+ fonts to test multi-font selection")
+        img_b64 = _generate_captcha_image("AbCdE")
+        assert base64.b64decode(img_b64)[:4] == b"\x89PNG"
+
+    def test_image_generated_with_no_fonts(self):
+        """Image generation must fall back gracefully when no fonts are found."""
+        import captcha_service as cs
+        original = cs._FONT_PATHS[:]
+        cs._FONT_PATHS.clear()
+        try:
+            img_b64 = cs._generate_captcha_image("AAAAA")
+            assert base64.b64decode(img_b64)[:4] == b"\x89PNG"
+        finally:
+            cs._FONT_PATHS.extend(original)
+
+
+# ── Random color palette ──────────────────────────────────────────────────────
+
+class TestRandomColorPalette:
+
+    def test_colors_palette_minimum_size(self):
+        """Expanded palette must have at least 12 distinct colors."""
+        assert len(_COLORS) >= 12, f"Expected ≥12 colors, got {len(_COLORS)}"
+
+    def test_colors_are_valid_hex(self):
+        """Every color must be a valid 7-char hex string (#RRGGBB)."""
+        import re
+        for c in _COLORS:
+            assert re.fullmatch(r"#[0-9a-fA-F]{6}", c), f"Invalid color: {c}"
+
+    def test_colors_are_unique(self):
+        assert len(_COLORS) == len(set(_COLORS)), "Duplicate colors in palette"
+
+    def test_same_code_can_produce_different_colors(self):
+        """Because colors are random, repeated generation may differ (probabilistic)."""
+        results = set()
+        for _ in range(20):
+            results.add(_generate_captcha_image("A"))
+        # 20 images of "A" should almost certainly produce at least 2 unique images
+        # (different random colors, rotations, noise). Extremely unlikely to all match.
+        assert len(results) > 1, "Random rendering produced identical images 20 times"
+
+
+# ── Paste blocking (documented behavior) ─────────────────────────────────────
+
+class TestPasteBlocking:
+
+    def test_server_captcha_jsx_has_onpaste_prevention(self):
+        """ServerCaptcha.jsx must block paste events on the text input."""
+        jsx_path = os.path.join(
+            os.path.dirname(__file__), "..", "frontend", "ServerCaptcha.jsx"
+        )
+        if not os.path.isfile(jsx_path):
+            pytest.skip("ServerCaptcha.jsx not found (testing outside repo root)")
+        with open(jsx_path) as f:
+            content = f.read()
+        assert "onPaste" in content, "ServerCaptcha.jsx must include onPaste handler"
+        assert "preventDefault" in content, "onPaste must call preventDefault()"
+
+    def test_canvas_captcha_jsx_has_onpaste_prevention(self):
+        """CanvasCaptcha.jsx must block paste events on the text input."""
+        jsx_path = os.path.join(
+            os.path.dirname(__file__), "..", "frontend", "CanvasCaptcha.jsx"
+        )
+        if not os.path.isfile(jsx_path):
+            pytest.skip("CanvasCaptcha.jsx not found")
+        with open(jsx_path) as f:
+            content = f.read()
+        assert "onPaste" in content, "CanvasCaptcha.jsx must include onPaste handler"
+        assert "preventDefault" in content
+
+    def test_demo_html_has_paste_prevention(self):
+        """docs/index.html demo must block paste events on both inputs."""
+        html_path = os.path.join(
+            os.path.dirname(__file__), "..", "docs", "index.html"
+        )
+        if not os.path.isfile(html_path):
+            pytest.skip("index.html not found")
+        with open(html_path) as f:
+            content = f.read()
+        # Should have paste event listener(s) that call preventDefault
+        assert content.count("addEventListener('paste'") >= 2, \
+            "Demo page must have paste listeners on both inputs"
+        assert "e.preventDefault()" in content or "evt.preventDefault()" in content

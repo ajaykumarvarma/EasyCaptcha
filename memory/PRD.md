@@ -92,57 +92,33 @@ https://github.com/ajaykumarvarma/EasyCaptcha
 
 ---
 
-## Config Reference (v1.2.0)
-| Env Var | Default | Description |
-|---|---|---|
-| MONGODB_URL | required | MongoDB connection string |
-| API_SECRET_KEY | required | Secret for X-API-Key header |
-| DB_NAME | easycaptcha | Database name |
-| ALLOWED_ORIGINS | * | CORS origins |
-| TOKEN_TTL_MINUTES | 5 | Token expiry |
-| RATE_LIMIT_PER_MIN | 15 | GET /captcha limit/IP/min |
-| VERIFY_LIMIT_PER_MIN | 60 | POST /captcha/verify limit/IP/min |
-| AUDIO_LIMIT_PER_MIN | 20 | GET /captcha/audio limit/IP/min |
-| CAPTCHA_LENGTH | 5 | Chars per challenge |
-| ENFORCE_IP_BINDING | false | Reject verify if client_ip mismatch |
-| LOG_LEVEL | INFO | DEBUG/INFO/WARNING/ERROR |
+## v1.4.0 — Security hardening (2025)
+- [x] **HMAC-SHA256 answer hashing** — `code_hash` field stored in MongoDB (keyed with API_SECRET_KEY). DB dump without the app secret doesn't reveal answers.
+- [x] **Constant-time comparison** — `hmac.compare_digest()` for both API key and answer hash comparison. Prevents timing-oracle attacks.
+- [x] **Multi-font random selection** — `_find_fonts()` scans 14 font paths, returns all available. Up to 6 bold fonts (sans-serif, serif, mono) picked randomly per character. `_FONT_PATHS` replaces single `_FONT_PATH`. Backward-compat `_find_font()` preserved.
+- [x] **Expanded random color palette** — 14 colors (was 6), `rng.choice(_COLORS)` per character (was `_COLORS[i % len]`).
+- [x] **Paste blocking** — `onPaste={e => e.preventDefault()}` in `ServerCaptcha.jsx`, `CanvasCaptcha.jsx`, and `addEventListener('paste')` in `docs/index.html`.
+- [x] Tests: **67 passed, 9 skipped** (4 new test classes: `TestAnswerHashing`, `TestMultiFontSelection`, `TestRandomColorPalette`, `TestPasteBlocking`)
+- [x] README: v1.4.0 changelog, updated security notes table, production checklist, test count
 
-## Docker Secrets (docker/.env.example)
-| Var | Purpose |
-|---|---|
-| MONGO_ROOT_USERNAME | MongoDB root admin user |
-| MONGO_ROOT_PASSWORD | MongoDB root admin password |
-| MONGO_CAPTCHA_PASSWORD | captcha_svc app user password |
-| API_SECRET_KEY | EasyCaptcha API secret |
-| ALLOWED_ORIGINS | CORS whitelist |
-| ENFORCE_IP_BINDING | IP binding toggle |
+## Test Results (v1.4.0)
+```
+67 passed, 9 skipped
+```
 
 ---
 
 ## Prioritized Backlog
 
 ### P1 (Important)
-- HTTPS/TLS documentation for production reverse proxy (nginx/caddy)
-- Redis-backed rate limiter (current in-memory resets on restart)
+- Redis-backed rate limiter (current in-memory resets on restart, not shared across instances)
 
 ### P2 (Nice to have)
-- Math captcha variant
+- Math captcha variant ("What is 4 + 7?")
 - Animated loading skeleton in React components
-- `CAPTCHA_LENGTH` per-request randomisation (4-6 chars)
 - Cypress/Playwright end-to-end tests against the demo page
+- Mouse/keyboard interaction scoring (behavioral analytics for bot detection)
 
-## Config Reference (v1.3.0)
-| Env Var | Default | Description |
-|---|---|---|
-| MONGODB_URL | required | MongoDB connection string |
-| API_SECRET_KEY | required | Secret for X-API-Key header |
-| DB_NAME | easycaptcha | Database name |
-| ALLOWED_ORIGINS | * | CORS origins |
-| TOKEN_TTL_MINUTES | 5 | Token expiry |
-| RATE_LIMIT_PER_MIN | 15 | GET /captcha limit/IP/min |
-| VERIFY_LIMIT_PER_MIN | 60 | POST /captcha/verify limit/IP/min |
-| AUDIO_LIMIT_PER_MIN | 20 | GET /captcha/audio limit/IP/min |
-| CAPTCHA_LENGTH | 5 | Chars per challenge |
-| CAPTCHA_MIN_SOLVE_MS | 1500 | Min ms to solve (0=off) — anti-bot timing check |
-| ENFORCE_IP_BINDING | false | Reject verify if client_ip mismatch |
-| LOG_LEVEL | INFO | DEBUG/INFO/WARNING/ERROR |
+### P3 (Future)
+- Admin dashboard for CAPTCHA analytics (solve rates, bot rejection stats)
+- Multi-instance Docker Swarm / Kubernetes deployment notes

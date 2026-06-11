@@ -305,6 +305,7 @@ const CanvasCaptcha = forwardRef(({
           setInput(e.target.value.replace(/[^A-Za-z0-9]/g, ''));
           if (error) setError('');
         }}
+        onPaste={(e) => e.preventDefault()}
         placeholder={`Type the ${activeLength} characters above`}
         maxLength={activeLength}
         autoComplete="off"
